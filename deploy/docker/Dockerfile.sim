@@ -1,0 +1,25 @@
+# deploy/docker/Dockerfile.sim
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System dependencies (falls nötig für SciPy etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies direkt hier installieren.
+# Wenn du später eine requirements.txt anlegst, kannst du das umbauen.
+RUN pip install --no-cache-dir \
+        numpy \
+        scipy \
+        matplotlib \
+        pandas \
+        stable-baselines3 \
+        gymnasium
+
+# Projektcode ins Image kopieren (für Batch-Simulationen usw.)
+COPY sim_rl /app/sim_rl
+
+CMD ["bash"]

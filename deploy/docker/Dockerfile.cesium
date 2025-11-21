@@ -1,9 +1,13 @@
+# deploy/docker/Dockerfile.cesium
 FROM nginx:alpine
 
-# Static Cesium viewer: index.html and CZML files
-COPY ../../sim_rl/czml/index.html /usr/share/nginx/html/index.html
-COPY ../../sim_rl/czml/station_keeping_mission.czml /usr/share/nginx/html/station_keeping_mission.czml
-COPY ../../sim_rl/czml/Gateway_Core.glb /usr/share/nginx/html/Gateway_Core.glb
+# Static Cesium viewer: HTML and CZML
+COPY sim_rl/czml/index.html /usr/share/nginx/html/index.html
+COPY sim_rl/czml/station_keeping_mission.czml /usr/share/nginx/html/station_keeping_mission.czml
+
+# Optional: lokales GLB-Modell, falls vorhanden (wird von .gitignore ignoriert)
+COPY sim_rl/czml/Gateway_Core.glb /usr/share/nginx/html/Gateway_Core.glb
 
 EXPOSE 8000
+
 CMD ["nginx", "-g", "daemon off;"]

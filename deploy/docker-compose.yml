@@ -1,10 +1,17 @@
+# deploy/docker-compose.yml
 version: "3.9"
 
 services:
   postgres:
     build:
-      context: ./docker
-      dockerfile: Dockerfile.postgres
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: cr3bp_db
+      POSTGRES_USER: cr3bp_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
@@ -12,13 +19,15 @@ services:
 
   airflow:
     build:
-      context: ./docker
-      dockerfile: Dockerfile.airflow
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.airflow
     depends_on:
       - postgres
+    env_file:
+      - .env
     environment:
-      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
-      - CR3BP_DATABASE_URL=postgresql+psycopg2://cr3bp_user:cr3bp_password@postgres:5432/cr3bp_db
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      CR3BP_DATABASE_URL: "postgresql+psycopg2://cr3bp_user:${POSTGRES_PASSWORD}@postgres:5432/cr3bp_db"
     volumes:
       - ../data_pipeline:/opt/airflow/data_pipeline
       - airflow_logs:/opt/airflow/logs
@@ -27,17 +36,19 @@ services:
 
   sim:
     build:
-      context: ./docker
-      dockerfile: Dockerfile.sim
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.sim
     depends_on:
       - postgres
     working_dir: /app
     command: bash
+    env_file:
+      - .env
 
   cesium:
     build:
-      context: ./docker
-      dockerfile: Dockerfile.cesium
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.cesium
     ports:
       - "8000:80"
     depends_on:
