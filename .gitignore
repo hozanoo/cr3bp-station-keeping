@@ -33,3 +33,6 @@ airflow_logs/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Large Cesium models (not tracked)
+sim_rl/czml/*.glb

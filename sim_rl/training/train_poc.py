@@ -1,22 +1,24 @@
-"""Training script for PPO-based station-keeping in the CR3BP.
+"""
+PPO training entry point for the CR3BP station-keeping environment.
 
-This module wires together the CR3BP environment, Stable-Baselines3 PPO,
-and a small experiment management system that:
+This module trains a PPO agent on a selected scenario and manages
+run directories, checkpoints, evaluation logs and rollout exports.
 
-- creates a run directory structure under ``training/runs/``,
-- stores checkpoints and TensorBoard logs,
-- records evaluation statistics and exports them to CSV,
-- periodically records full rollouts for later visualization.
+Typical usage from the project root:
 
-The main entry point is :func:`train`, which can be called directly or
-via ``python -m sim_rl.training.train_poc`` from the project root.
+.. code-block:: bash
+
+    python -m sim_rl.training.train_poc
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from datetime import datetime
 import json
+
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import numpy as np
 import pandas as pd
@@ -35,41 +37,33 @@ from sim_rl.cr3bp.env_cr3bp_station_keeping import Cr3bpStationKeepingEnv
 from sim_rl.cr3bp.scenarios import SCENARIOS, ScenarioConfig
 
 # ----------------------------------------------------------------------
-# Hyperparameters and global configuration
+# Hyperparameters
 # ----------------------------------------------------------------------
 
-#: Total number of PPO training timesteps.
-TOTAL_TIMESTEPS = 8_000_000
+TOTAL_TIMESTEPS = 2_000_000
+N_ENVS = 4
 
-#: Number of parallel environments for PPO.
-N_ENVS = 4  # can be set to 1 if needed
-
-#: Base directory for all runs, relative to this file (training/runs).
-BASE_RUN_DIR = Path(__file__).parent / "runs"
+# Runs are stored in sim_rl/training/runs relative to this file
+BASE_RUN_DIR = Path(__file__).resolve().parent / "runs"
 
 
 # ======================================================================
-# Run management utilities
+# Run management
 # ======================================================================
-
 
 def make_run_dirs(scenario: ScenarioConfig) -> dict[str, Path]:
-    """Create the directory structure for a new training run.
+    """
+    Create the run directory hierarchy for a given scenario.
 
-    The structure is:
-
-    ``runs/<scenario.name>/run_YYYYMMDD_HHMMSS/{models,logs,rollouts,config}``
-
-    Parameters
-    ----------
-    scenario : ScenarioConfig
-        Scenario for which the run is created.
+    Structure
+    ---------
+    runs/<scenario.name>/run_YYYYMMDD_HHMMSS/
 
     Returns
     -------
-    dict[str, pathlib.Path]
-        Dictionary with keys ``"run_dir"``, ``"models"``, ``"logs"``,
-        ``"rollouts"``, and ``"config"`` pointing to the respective paths.
+    dict[str, Path]
+        Mapping containing paths for ``run_dir``, ``models``, ``logs``,
+        ``rollouts`` and ``config``.
     """
     scenario_root = BASE_RUN_DIR / scenario.name
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -87,8 +81,7 @@ def make_run_dirs(scenario: ScenarioConfig) -> dict[str, Path]:
     latest_path = scenario_root / "latest_run.txt"
     try:
         latest_path.write_text(str(run_dir), encoding="utf-8")
-    except Exception:
-        # Not critical if this fails (e.g. permissions), so we ignore it.
+    except OSError:
         pass
 
     return {
@@ -101,30 +94,27 @@ def make_run_dirs(scenario: ScenarioConfig) -> dict[str, Path]:
 
 
 def export_eval_to_csv(eval_log_dir: Path, csv_path: Path) -> None:
-    """Export evaluation results from ``evaluations.npz`` to CSV.
-
-    This expects the file produced by :class:`EvalCallback` and writes
-    a CSV file containing timesteps, mean episode reward, and (if
-    available) mean episode length.
+    """
+    Export evaluation results from ``evaluations.npz`` to a CSV file.
 
     Parameters
     ----------
-    eval_log_dir : pathlib.Path
-        Directory containing ``evaluations.npz``.
-    csv_path : pathlib.Path
-        Output path for the CSV file.
+    eval_log_dir:
+        Directory containing ``evaluations.npz`` produced by
+        :class:`stable_baselines3.common.callbacks.EvalCallback`.
+    csv_path:
+        Output CSV path.
     """
     npz_path = eval_log_dir / "evaluations.npz"
     if not npz_path.exists():
-        print(f"[WARN] No evaluations.npz found in {eval_log_dir}.")
+        print(f"[WARN] No evaluations.npz found in {eval_log_dir}")
         return
 
     data = np.load(npz_path)
-    timesteps = data["timesteps"]  # shape (n_evals,)
-    results = data["results"]  # shape (n_evals, n_envs) or (n_evals,)
+    timesteps = data["timesteps"]
+    results = data["results"]
     ep_lengths = data.get("ep_lengths", None)
 
-    # Average across envs if necessary
     if results.ndim == 2:
         mean_rewards = results.mean(axis=1)
     else:
@@ -136,7 +126,6 @@ def export_eval_to_csv(eval_log_dir: Path, csv_path: Path) -> None:
             "mean_reward": mean_rewards,
         }
     )
-
     if ep_lengths is not None:
         if ep_lengths.ndim == 2:
             mean_lengths = ep_lengths.mean(axis=1)
@@ -145,25 +134,15 @@ def export_eval_to_csv(eval_log_dir: Path, csv_path: Path) -> None:
         df["mean_ep_length"] = mean_lengths
 
     df.to_csv(csv_path, index=False)
-    print(f"[INFO] Evaluation CSV saved to: {csv_path}")
+    print(f"[INFO] Evaluation CSV written to: {csv_path}")
 
 
 def _safe_float(x):
-    """Try to safely cast a value to float.
+    """
+    Try to cast ``x`` to float, returning ``None`` if this is not possible.
 
-    This is mainly used to convert Schedule-like objects from
-    Stable-Baselines3 (e.g. ``clip_range``) into simple floats
-    for run configuration logging.
-
-    Parameters
-    ----------
-    x :
-        Value to be converted.
-
-    Returns
-    -------
-    float or None
-        Float value if conversion is possible, otherwise ``None``.
+    This is mainly used to serialize certain Stable-Baselines3 schedule
+    objects which are not directly JSON-serializable.
     """
     try:
         return float(x)
@@ -172,16 +151,17 @@ def _safe_float(x):
 
 
 def save_run_config(config_dir: Path, scenario: ScenarioConfig, model: PPO) -> None:
-    """Save scenario configuration and PPO hyperparameters as JSON.
+    """
+    Save scenario configuration and PPO hyperparameters as JSON.
 
     Parameters
     ----------
-    config_dir : pathlib.Path
-        Directory where the configuration file should be written.
-    scenario : ScenarioConfig
-        Scenario used for this training run.
-    model : stable_baselines3.PPO
-        Trained PPO model (used here only to read hyperparameters).
+    config_dir:
+        Target directory for ``run_config.json``.
+    scenario:
+        Scenario metadata.
+    model:
+        Trained PPO model instance.
     """
     cfg = {
         "scenario": {
@@ -212,14 +192,12 @@ def save_run_config(config_dir: Path, scenario: ScenarioConfig, model: PPO) -> N
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     with cfg_path.open("w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
-
-    print(f"[INFO] Run configuration saved to: {cfg_path}")
+    print(f"[INFO] Run configuration written to: {cfg_path}")
 
 
 # ======================================================================
-# Rollout export
+# Rollouts as CSV
 # ======================================================================
-
 
 def rollout_policy_to_csv(
     scenario: ScenarioConfig,
@@ -228,23 +206,25 @@ def rollout_policy_to_csv(
     max_steps: int | None = None,
     deterministic: bool = True,
 ) -> None:
-    """Run a single rollout and store state and Δv history as CSV.
+    """
+    Run a rollout with the given policy and export it as CSV.
+
+    The CSV includes time, reward, position, velocity and delta-v
+    in the rotating frame.
 
     Parameters
     ----------
-    scenario : ScenarioConfig
-        Scenario in which the rollout is executed.
-    model : stable_baselines3.PPO
-        Policy used to generate actions.
-    csv_path : pathlib.Path
+    scenario:
+        Scenario used for environment construction.
+    model:
+        PPO policy to evaluate.
+    csv_path:
         Output CSV path.
-    max_steps : int or None, optional
-        Optional maximum number of steps for the rollout. If ``None``,
-        the rollout continues until the environment terminates.
-    deterministic : bool, optional
-        Whether to use deterministic actions during rollout.
+    max_steps:
+        Optional maximum number of steps to simulate.
+    deterministic:
+        Whether to use deterministic actions.
     """
-    # No Monitor wrapper: we want direct access to environment attributes
     env = Cr3bpStationKeepingEnv(scenario=scenario)
 
     obs, _ = env.reset()
@@ -252,7 +232,7 @@ def rollout_policy_to_csv(
     truncated = False
     step = 0
 
-    records: list[dict] = []
+    records = []
 
     dt = env.dt
     dim = env.dim
@@ -264,20 +244,20 @@ def rollout_policy_to_csv(
         rel_pos = obs[:dim]
         rel_vel = obs[dim : 2 * dim]
 
-        # Absolute position in the rotating frame
         pos = rel_pos + env.target
         vel = rel_vel
         dv = info.get("dv", np.zeros(dim))
 
         t = step * dt
 
-        row: dict[str, float] = {"t": t, "reward": reward}
+        row = {"t": t, "reward": reward}
+
         for i in range(dim):
-            row[f"x{i}"] = float(pos[i])
+            row[f"x{i}"] = pos[i]
         for i in range(dim):
-            row[f"v{i}"] = float(vel[i])
+            row[f"v{i}"] = vel[i]
         for i in range(dim):
-            row[f"dv{i}"] = float(dv[i])
+            row[f"dv{i}"] = dv[i]
 
         records.append(row)
         step += 1
@@ -286,44 +266,23 @@ def rollout_policy_to_csv(
             break
 
     df = pd.DataFrame(records)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(csv_path, index=False)
-    print(f"[INFO] Rollout saved to: {csv_path}")
+    print(f"[INFO] Rollout written to: {csv_path}")
 
     env.close()
 
 
 # ======================================================================
-# Callback: periodic simulation recording
+# Callback: recording intermediate simulations
 # ======================================================================
 
-
 class SimulationRecorderCallback(BaseCallback):
-    """Record full rollouts during training for later visualization.
+    """
+    Callback that records full simulations at selected rollout indices.
 
-    The callback records:
-
-    - the first ``n_sim_first`` rollouts, and
-    - additional rollouts whose indices are in ``{3**n | n in [power_start, power_end]}``.
-
-    Each recorded rollout is saved as a CSV file in the ``rollouts`` folder
-    of the current run directory.
-
-    Parameters
-    ----------
-    scenario : ScenarioConfig
-        Scenario for which the rollouts are recorded.
-    rollouts_dir : pathlib.Path
-        Directory where rollout CSV files are written.
-    verbose : int, optional
-        Verbosity level (0 = silent, 1 = info).
-    n_sim_first : int, optional
-        Number of initial consecutive rollouts to record.
-    power_start : int, optional
-        Lower exponent for the special indices (base 3).
-    power_end : int, optional
-        Upper exponent for the special indices (base 3).
-    max_steps : int or None, optional
-        Optional cap on the number of steps per recorded rollout.
+    The recorded trajectories are stored as CSV files in the
+    ``rollouts`` directory of the current run.
     """
 
     def __init__(
@@ -335,31 +294,25 @@ class SimulationRecorderCallback(BaseCallback):
         power_start: int = 3,
         power_end: int = 11,
         max_steps: int | None = None,
-    ) -> None:
+    ):
         super().__init__(verbose)
         self.scenario = scenario
         self.rollouts_dir = rollouts_dir
         self.n_sim_first = n_sim_first
         self.max_steps = max_steps
 
-        # Indices 3^n (e.g. 27, 81, 243, 729, ...)
-        self.special_indices = {3**n for n in range(power_start, power_end + 1)}
+        # Selected rollout indices (for example 8, 16, 32, ...)
+        self.special_indices = {2**n for n in range(power_start, power_end + 1)}
 
-        # Counts how many simulations have been recorded so far
         self.sim_index = 0
 
     def _on_training_start(self) -> None:
         if self.verbose > 0:
-            print(
-                "[SimulationRecorder] Training started, "
-                "recording of selected rollouts is enabled."
-            )
+            print("[SimulationRecorder] Training started, recording enabled.")
 
     def _on_rollout_end(self) -> None:
-        """Hook called by SB3 after each PPO rollout.
-
-        We decide here whether to record a new simulation based on
-        ``n_sim_first`` and ``special_indices``.
+        """
+        Called by Stable-Baselines3 after each PPO rollout.
         """
         self.sim_index += 1
 
@@ -371,7 +324,6 @@ class SimulationRecorderCallback(BaseCallback):
         if not should_record:
             return
 
-        # File name: sim_<index>_steps_<total_timesteps>.csv
         csv_name = f"sim_{self.sim_index:03d}_steps_{self.num_timesteps}.csv"
         csv_path = self.rollouts_dir / csv_name
 
@@ -390,18 +342,13 @@ class SimulationRecorderCallback(BaseCallback):
         )
 
     def _on_step(self) -> bool:
-        """Mandatory hook for :class:`BaseCallback`.
-
-        We do not need to perform any per-step logic here, so this always
-        returns ``True`` to continue training.
-        """
         return True
 
     def _on_training_end(self) -> None:
         if self.verbose > 0:
             print(
                 "[SimulationRecorder] Training finished. "
-                f"Recorded {self.sim_index} simulations in total."
+                f"Recorded {self.sim_index} simulations."
             )
 
 
@@ -409,23 +356,9 @@ class SimulationRecorderCallback(BaseCallback):
 # Environment factory
 # ======================================================================
 
-
 def make_env_fn(scenario: ScenarioConfig, seed_offset: int = 0):
-    """Factory function for CR3BP environments used in a vectorized setup.
-
-    This returns a thunk compatible with :class:`DummyVecEnv`.
-
-    Parameters
-    ----------
-    scenario : ScenarioConfig
-        Scenario configuration for the environment.
-    seed_offset : int, optional
-        Optional offset for the environment seed (currently unused).
-
-    Returns
-    -------
-    callable
-        A function that, when called, creates a new monitored environment.
+    """
+    Factory for environment instances compatible with :class:`DummyVecEnv`.
     """
 
     def _thunk():
@@ -440,17 +373,12 @@ def make_env_fn(scenario: ScenarioConfig, seed_offset: int = 0):
 # Training entry point
 # ======================================================================
 
-
 def train(scenario_name: str = "earth-moon-L1-3D") -> None:
-    """Train a PPO policy for a given CR3BP scenario.
-
-    Parameters
-    ----------
-    scenario_name : str, optional
-        Key of the scenario to use from :data:`sim_rl.cr3bp.scenarios.SCENARIOS`.
+    """
+    Train a PPO agent on the given scenario.
     """
     if scenario_name not in SCENARIOS:
-        raise KeyError(f"Unknown scenario: {scenario_name}")
+        raise KeyError(f"Unknown scenario: {scenario_name!r}")
 
     scenario = SCENARIOS[scenario_name]
     print(f"[INFO] Starting training for scenario: {scenario.name}")
@@ -461,11 +389,10 @@ def train(scenario_name: str = "earth-moon-L1-3D") -> None:
     rollouts_dir = run_dirs["rollouts"]
     config_dir = run_dirs["config"]
 
-    # Vectorized environment
     env = DummyVecEnv([make_env_fn(scenario, i) for i in range(N_ENVS)])
 
     device = "cpu"
-    print("[INFO] Using device:", device)
+    print("Using device:", device)
 
     model = PPO(
         policy="MlpPolicy",
@@ -473,7 +400,7 @@ def train(scenario_name: str = "earth-moon-L1-3D") -> None:
         verbose=1,
         tensorboard_log=str(logs_dir / "tb"),
         learning_rate=3e-4,
-        n_steps=2048 // max(N_ENVS, 1),  # per environment
+        n_steps=2048 // max(N_ENVS, 1),
         batch_size=64,
         gamma=0.995,
         gae_lambda=0.95,
@@ -484,14 +411,12 @@ def train(scenario_name: str = "earth-moon-L1-3D") -> None:
         device=device,
     )
 
-    # Checkpoints
     checkpoint_callback = CheckpointCallback(
         save_freq=100_000 // max(N_ENVS, 1),
         save_path=str(models_dir),
         name_prefix="checkpoint",
     )
 
-    # Evaluation environment (single)
     eval_env = Cr3bpStationKeepingEnv(scenario=scenario)
     eval_env = Monitor(eval_env, filename=str(logs_dir / "eval_monitor.csv"))
 
@@ -506,44 +431,39 @@ def train(scenario_name: str = "earth-moon-L1-3D") -> None:
 
     progress_callback = ProgressBarCallback()
 
-    # SimulationRecorder for presentation rollouts
     sim_recorder = SimulationRecorderCallback(
         scenario=scenario,
         rollouts_dir=rollouts_dir,
         verbose=1,
-        n_sim_first=20,  # first N rollouts
-        power_start=3,  # 3^3 = 27, 3^4 = 81, ...
-        power_end=6,  # 27, 81, 243, 729
-        max_steps=None,  # can be set to e.g. 600 to cap rollout length
+        n_sim_first=20,
+        power_start=3,
+        power_end=6,
+        max_steps=None,
     )
 
-    # Training
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
         callback=[checkpoint_callback, eval_callback, progress_callback, sim_recorder],
     )
 
-    # Save last model
     last_model_path = models_dir / "ppo_last.zip"
     model.save(str(last_model_path))
     print(f"[INFO] Last model saved to: {last_model_path}")
 
-    # Save run configuration
     save_run_config(config_dir, scenario, model)
-
-    # Export evaluation results as CSV
     export_eval_to_csv(Path(logs_dir), logs_dir / "eval_rewards.csv")
 
-    # Rollout with best model (if available)
     best_model_path = models_dir / "best_model.zip"
     if best_model_path.exists():
         final_csv = rollouts_dir / "best_policy_final_rollout.csv"
+        model_best = PPO.load(
+            best_model_path,
+            env=Cr3bpStationKeepingEnv(scenario=scenario),
+            device="cpu",
+        )
         rollout_policy_to_csv(
             scenario=scenario,
-            model=PPO.load(
-                best_model_path,
-                env=Cr3bpStationKeepingEnv(scenario),
-            ),
+            model=model_best,
             csv_path=final_csv,
             max_steps=None,
             deterministic=True,
@@ -556,5 +476,5 @@ def train(scenario_name: str = "earth-moon-L1-3D") -> None:
 
 
 if __name__ == "__main__":
-    print("[INFO] Starting training with device=cpu (forced, PPO + MLP).")
+    print("Starting training with device=cpu (PPO + MLP)")
     train("earth-moon-L1-3D")

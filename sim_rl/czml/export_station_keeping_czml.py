@@ -1,26 +1,27 @@
-"""Export a station-keeping PPO rollout to a CesiumJS CZML file.
+"""
+Export a station-keeping PPO rollout to a CesiumJS CZML file.
 
 This utility reads the final rollout of a trained CR3BP station-keeping model
-(e.g. ``final_rollout_after_manual_stop.csv``) and converts it into a CZML file
-that can be visualized in CesiumJS.
+(for example ``final_rollout_after_manual_stop.csv``) and converts it into a
+CZML file that can be visualized in CesiumJS.
 
-The script assumes:
+Assumptions
+-----------
 
-- Scenario name: ``earth-moon-L1-3D`` (customizable),
-- a project structure compatible with :mod:`sim_rl.training.train_poc`,
-  i.e. ``runs/<scenario_name>/run_YYYYMMDD_HHMMSS/rollouts/...``.
-- The final rollout CSV contains position and Δv columns (``x0,x1,x2,dv0,dv1,dv2``).
-- A GLTF spacecraft model exists in the same directory as this script,
-  otherwise a Cesium sample model is used as fallback.
+- Scenario name: ``earth-moon-L1-3D`` (default).
+- Run directory structure compatible with :mod:`sim_rl.training.train_poc`,
+  i.e. ``sim_rl/training/runs/<scenario_name>/run_YYYYMMDD_HHMMSS/rollouts/...``.
+- The final rollout CSV contains position and delta-v columns
+  (``x0, x1, x2, dv0, dv1, dv2``).
+- A GLTF spacecraft model is expected at
+  ``sim_rl/czml/Gateway_Core.glb``; if missing, a Cesium sample
+  model is used as fallback.
 
-Usage
------
-
-From project root:
+Typical usage from the project root:
 
 .. code-block:: bash
 
-    python -m sim_rl.visualization.export_station_keeping_czml
+    python -m sim_rl.czml.export_station_keeping_czml
 """
 
 from __future__ import annotations
@@ -34,20 +35,18 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-print("Starting Station-Keeping to CZML export...")
-
 # --------------------------------------------------------------------
 # 1. Configuration
 # --------------------------------------------------------------------
 
 SCENARIO_NAME = "earth-moon-L1-3D"
 
-# Base run directory relative to this script (mirrors train_poc logic)
-BASE_RUN_DIR = Path(__file__).parent / "runs"
+# Base run directory: sim_rl/training/runs
+BASE_RUN_DIR = Path(__file__).resolve().parents[1] / "training" / "runs"
 
 CZML_FILENAME = "station_keeping_mission.czml"
 
-# Local GLTF model (fallback if missing)
+# Local GLTF model (ignored by Git, see .gitignore)
 MODEL_FILENAME = "Gateway_Core.glb"
 
 # Number of steps to export from the rollout
@@ -57,9 +56,9 @@ MAX_STEPS = 4000
 MU_EM = 0.0121505856
 DT = 0.01  # CR3BP integration timestep
 SIDEREAL_MONTH_SEC = 27.321661 * 24 * 3600
-SCALE_FACTOR = 384_400_000.0  # normalize CR3BP units to meters
+SCALE_FACTOR = 384_400_000.0  # map CR3BP distance units to meters
 
-# Cesium clock start time
+# Cesium clock start time (arbitrary but fixed)
 START_TIME = datetime.datetime(
     2026, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc
 )
@@ -75,22 +74,24 @@ FALLBACK_MODEL_URL = (
 
 if os.path.exists(MODEL_FILENAME):
     model_uri = MODEL_FILENAME
-    print(f"Local GLTF model found: {MODEL_FILENAME}")
+    print(f"[INFO] Local GLTF model found: {MODEL_FILENAME}")
 else:
     model_uri = FALLBACK_MODEL_URL
-    print(f"{MODEL_FILENAME} not found, using placeholder model: {model_uri}")
+    print(
+        f"[WARN] {MODEL_FILENAME} not found. "
+        "Using Cesium sample model as fallback."
+    )
 
 # --------------------------------------------------------------------
-# 3. Locate run directory & rollout CSV
+# 3. Locate run directory and rollout CSV
 # --------------------------------------------------------------------
 
 scenario_root = BASE_RUN_DIR / SCENARIO_NAME
-
 latest_txt = scenario_root / "latest_run.txt"
 
 if latest_txt.exists():
     run_dir = Path(latest_txt.read_text(encoding="utf-8").strip())
-    print(f"Using run from latest_run.txt: {run_dir}")
+    print(f"[INFO] Using run from latest_run.txt: {run_dir}")
 else:
     candidates = [
         d for d in scenario_root.iterdir()
@@ -99,26 +100,26 @@ else:
     if not candidates:
         raise FileNotFoundError(f"No run_* directories found in {scenario_root}")
     run_dir = sorted(candidates)[-1]
-    print(f"Using latest run_* directory: {run_dir}")
+    print(f"[INFO] Using latest run_* directory: {run_dir}")
 
 csv_path = run_dir / "rollouts" / "final_rollout_after_manual_stop.csv"
 if not csv_path.exists():
     raise FileNotFoundError(f"Rollout CSV not found: {csv_path}")
 
-print(f"Loading rollout CSV: {csv_path}")
+print(f"[INFO] Loading rollout CSV: {csv_path}")
 
 df = pd.read_csv(csv_path)
 df.columns = df.columns.str.strip()
 
-# Clip to desired step count
+# Limit the number of steps exported
 if len(df) > MAX_STEPS:
     df = df.iloc[:MAX_STEPS].reset_index(drop=True)
-    print(f"Using first {MAX_STEPS} steps from rollout.")
+    print(f"[INFO] Using first {MAX_STEPS} steps from rollout.")
 else:
-    print(f"Using all {len(df)} steps.")
+    print(f"[INFO] Using all {len(df)} steps from rollout.")
 
 # --------------------------------------------------------------------
-# 4. Extract positions & Δv data
+# 4. Extract positions and delta-v data
 # --------------------------------------------------------------------
 
 required_pos_cols = {"x0", "x1", "x2"}
@@ -129,32 +130,32 @@ x_rel = df["x0"].to_numpy()
 y_rel = df["x1"].to_numpy()
 z_rel = df["x2"].to_numpy()
 
-# Δv visualisation strength → path color
+# Delta-v visualisation strength → path color
 if {"dv0", "dv1", "dv2"}.issubset(df.columns):
     dv_vecs = df[["dv0", "dv1", "dv2"]].to_numpy()
     dv_norms = np.linalg.norm(dv_vecs, axis=1)
     max_thrust = np.max(dv_norms) if np.max(dv_norms) > 0 else 1.0
     norm_dv = dv_norms / max_thrust
     print(
-        f"Delta-v detected: min={dv_norms.min():.3e}, "
-        f"max={dv_norms.max():.3e}"
+        f"[INFO] Delta-v statistics: "
+        f"min={dv_norms.min():.3e}, max={dv_norms.max():.3e}"
     )
 else:
     norm_dv = np.zeros(len(df))
-    print("No dv0/dv1/dv2 columns found, using constant path color.")
+    print("[INFO] No dv0/dv1/dv2 columns found. Using constant path color.")
 
 # --------------------------------------------------------------------
-# 5. Rotating → inertial transform & time construction
+# 5. Rotating → inertial transform and time construction
 # --------------------------------------------------------------------
 
 seconds_per_step = DT * (SIDEREAL_MONTH_SEC / (2 * np.pi))
 
 cmap = plt.get_cmap("coolwarm")
-rgba_time_list = []
-moon_pos_data = []
-probe_pos_data = []
+rgba_time_list: list[float | int] = []
+moon_pos_data: list[float | int | str] = []
+probe_pos_data: list[float | int | str] = []
 
-# Earth & Moon in CR3BP rotating frame
+# Earth and Moon positions in the rotating CR3BP frame
 pos_earth_rot = np.array([-MU_EM, 0.0, 0.0])
 pos_moon_rot = np.array([1.0 - MU_EM, 0.0, 0.0])
 
@@ -169,24 +170,30 @@ for i in range(len(df)):
     )
     iso_time = current_time.isoformat().replace("+00:00", "Z")
 
-    # Δv → path color
+    # Delta-v magnitude → path color and alpha
     rgba = cmap(norm_dv[i])
     alpha = int(150 + 105 * norm_dv[i])
-    rgba_time_list.extend([
-        iso_time,
-        int(rgba[0] * 255),
-        int(rgba[1] * 255),
-        int(rgba[2] * 255),
-        alpha,
-    ])
+    rgba_time_list.extend(
+        [
+            iso_time,
+            int(rgba[0] * 255),
+            int(rgba[1] * 255),
+            int(rgba[2] * 255),
+            alpha,
+        ]
+    )
 
-    # rotation from rotating → inertial
-    def rot(vec):
-        return np.array([
-            vec[0] * c - vec[1] * s,
-            vec[0] * s + vec[1] * c,
-            vec[2],
-        ])
+    def rot(vec: np.ndarray) -> np.ndarray:
+        """
+        Rotate a vector from rotating CR3BP frame to inertial frame.
+        """
+        return np.array(
+            [
+                vec[0] * c - vec[1] * s,
+                vec[0] * s + vec[1] * c,
+                vec[2],
+            ]
+        )
 
     earth_in = rot(pos_earth_rot)
     moon_in = rot(pos_moon_rot)
@@ -195,18 +202,22 @@ for i in range(len(df)):
     moon_final = (moon_in - earth_in) * SCALE_FACTOR
     probe_final = (probe_in - earth_in) * SCALE_FACTOR
 
-    moon_pos_data.extend([
-        iso_time,
-        float(moon_final[0]),
-        float(moon_final[1]),
-        float(moon_final[2]),
-    ])
-    probe_pos_data.extend([
-        iso_time,
-        float(probe_final[0]),
-        float(probe_final[1]),
-        float(probe_final[2]),
-    ])
+    moon_pos_data.extend(
+        [
+            iso_time,
+            float(moon_final[0]),
+            float(moon_final[1]),
+            float(moon_final[2]),
+        ]
+    )
+    probe_pos_data.extend(
+        [
+            iso_time,
+            float(probe_final[0]),
+            float(probe_final[1]),
+            float(probe_final[2]),
+        ]
+    )
 
 end_time = START_TIME + datetime.timedelta(
     seconds=float((len(df) - 1) * seconds_per_step)
@@ -304,6 +315,6 @@ with open(CZML_FILENAME, "w", encoding="utf-8") as f:
     json.dump(czml, f)
 
 print("------------------------------------------------------------")
-print(f"CZML file written: {CZML_FILENAME}")
-print("Open with CesiumJS (see index.html).")
+print(f"[INFO] CZML file written: {CZML_FILENAME}")
+print("Open this file with CesiumJS (see index.html).")
 print("------------------------------------------------------------")

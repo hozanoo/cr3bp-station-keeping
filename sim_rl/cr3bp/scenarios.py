@@ -1,48 +1,37 @@
-"""Scenario configuration definitions for CR3BP station-keeping.
-
-This module defines :class:`ScenarioConfig`, a dataclass that encapsulates all
-parameters required to configure a station-keeping scenario in the CR3BP
-environment. It also contains a registry of predefined scenarios that can be
-used directly by the training pipeline or extended with new configurations.
 """
+Scenario configuration for CR3BP station-keeping experiments.
+
+The :class:`ScenarioConfig` dataclass describes which physical system,
+Lagrange point, dimensionality and action mode are used for a given setup.
+"""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 
 
 @dataclass
 class ScenarioConfig:
-    """Configuration container for a CR3BP scenario.
-
-    A scenario defines the physical system (Earth–Moon or Earth–Sun),
-    the Lagrange point to target, the dimensionality of the simulation,
-    the action mode, and the magnitude of the domain randomization noise.
+    """
+    Configuration for a single CR3BP station-keeping scenario.
 
     Parameters
     ----------
-    name : str
-        Unique scenario identifier (e.g. ``"earth-moon-L1-3D"``).
-    system : str
-        Name of the CR3BP system. Supported values are:
-        - ``"earth-moon"``
-        - ``"earth-sun"``
-    lagrange_point : str
-        Target Lagrange point. Supported values are:
-        - ``"L1"``
-        - ``"L2"``
-    dim : int
-        Dimensionality of the simulation (``2`` or ``3``).
-    action_mode : str
-        Determines which components of Δv can be controlled:
-        - ``"planar"`` → control only x/y
-        - ``"full_3d"`` → control all spatial dimensions
-    pos_noise : float
-        Standard deviation of the initial position perturbation for domain
-        randomization.
-    vel_noise : float
-        Standard deviation of the initial velocity perturbation for domain
-        randomization.
+    name:
+        Human-readable scenario name (for directory and logging).
+    system:
+        Physical system identifier (for example ``"earth-moon"``).
+    lagrange_point:
+        Lagrange point identifier (for example ``"L1"`` or ``"L2"``).
+    dim:
+        State dimensionality: 2 for planar, 3 for full 3D.
+    action_mode:
+        Action space type: ``"planar"`` or ``"full_3d"``.
+    pos_noise:
+        Standard deviation of initial position perturbation.
+    vel_noise:
+        Standard deviation of initial velocity perturbation.
     """
-
     name: str
     system: str
     lagrange_point: str
@@ -52,12 +41,8 @@ class ScenarioConfig:
     vel_noise: float
 
 
-#: Registry of available CR3BP scenarios.
-#: Keys are scenario names, values are :class:`ScenarioConfig` instances.
 SCENARIOS: dict[str, ScenarioConfig] = {
-    # Main default scenario:
-    # Earth–Moon CR3BP, L1 point, full 3D dynamics, 3D thrust,
-    # and moderate domain randomization.
+    # Main 3D scenario: Earth–Moon system, L1, full 3D control.
     "earth-moon-L1-3D": ScenarioConfig(
         name="earth-moon-L1-3D",
         system="earth-moon",
@@ -68,7 +53,7 @@ SCENARIOS: dict[str, ScenarioConfig] = {
         vel_noise=1e-3,
     ),
 
-    # Example for future extensions:
+    # Example for a possible future 2D scenario:
     # "earth-moon-L1-2D": ScenarioConfig(
     #     name="earth-moon-L1-2D",
     #     system="earth-moon",
