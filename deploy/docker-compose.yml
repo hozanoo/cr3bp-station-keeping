@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  postgres:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  airflow:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.airflow
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - CR3BP_DATABASE_URL=postgresql+psycopg2://cr3bp_user:cr3bp_password@postgres:5432/cr3bp_db
+    volumes:
+      - ../data_pipeline:/opt/airflow/data_pipeline
+      - airflow_logs:/opt/airflow/logs
+    ports:
+      - "8080:8080"
+
+  sim:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.sim
+    depends_on:
+      - postgres
+    working_dir: /app
+    command: bash
+
+  cesium:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.cesium
+    ports:
+      - "8000:80"
+    depends_on:
+      - sim
+
+volumes:
+  postgres_data:
+  airflow_logs:

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>Station Keeping – Mission Control</title>
+
+  <!-- CesiumJS -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
+  <link
+    href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css"
+    rel="stylesheet"
+  />
+
+  <style>
+    html, body, #cesiumContainer {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #000;
+      font-family: sans-serif;
+    }
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 20px;
+      border-radius: 10px;
+      z-index: 999;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="cesiumContainer"></div>
+  <div id="loading">Lade Station-Keeping-Mission...</div>
+
+  <script>
+    /* Disable Cesium Ion completely */
+    Cesium.Ion.defaultAccessToken = "";
+
+    /* Explicit imagery provider (OpenStreetMap) to avoid Ion dependencies */
+    const osmImagery = new Cesium.UrlTemplateImageryProvider({
+      url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    });
+
+    /* Initialize viewer */
+    const viewer = new Cesium.Viewer("cesiumContainer", {
+      terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+      imageryProvider: osmImagery,
+      baseLayerPicker: false,
+      geocoder: false,
+      homeButton: false,
+      sceneModePicker: false,
+      navigationHelpButton: false,
+      animation: true,
+      timeline: true,
+      shouldAnimate: true
+    });
+
+    /* Keep globe and lighting enabled */
+    viewer.scene.globe = new Cesium.Globe(Cesium.Ellipsoid.WGS84);
+
+    viewer.scene.globe.imageryLayers.removeAll();
+    viewer.scene.globe.imageryLayers.addImageryProvider(
+      new Cesium.OpenStreetMapImageryProvider({
+        url: "https://tile.openstreetmap.org/"
+      })
+    );
+
+    viewer.scene.globe.enableLighting = true;
+    viewer.scene.highDynamicRange = true;
+
+    const czmlFile = "station_keeping_mission.czml";
+    console.log("Loading CZML:", czmlFile);
+
+    Cesium.CzmlDataSource.load(czmlFile)
+      .then(function (dataSource) {
+        viewer.dataSources.add(dataSource);
+
+        /* In the CZML, the agent is named "StationKeepingProbe" */
+        const probe = dataSource.entities.getById("StationKeepingProbe");
+
+        if (probe) {
+          viewer.trackedEntity = probe;
+        } else {
+          console.warn("StationKeepingProbe not found. Zooming to all entities.");
+          viewer.zoomTo(dataSource);
+        }
+
+        document.getElementById("loading").style.display = "none";
+      })
+      .catch(function (error) {
+        console.error(error);
+        document.getElementById("loading").innerText =
+          "Fehler beim Laden der CZML-Datei: " + error;
+      });
+  </script>
+</body>
+</html>

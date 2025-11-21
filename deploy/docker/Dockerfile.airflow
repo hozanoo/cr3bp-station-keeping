@@ -1,0 +1,13 @@
+FROM apache/airflow:2.9.1-python3.11
+
+USER root
+RUN mkdir -p /opt/airflow/data/raw /opt/airflow/data/processed
+RUN chown -R airflow:airflow /opt/airflow/data
+USER airflow
+
+# Copy DAGs and pipeline code into the image
+COPY ../../data_pipeline /opt/airflow/data_pipeline
+
+ENV AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/data_pipeline/dags
+
+# Additional python dependencies can be installed via requirements.txt later.

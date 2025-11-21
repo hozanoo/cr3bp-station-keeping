@@ -1,0 +1,7 @@
+FROM postgres:16
+
+ENV POSTGRES_DB=cr3bp_db
+ENV POSTGRES_USER=cr3bp_user
+ENV POSTGRES_PASSWORD=cr3bp_password
+
+COPY ../config/postgres_init.sql /docker-entrypoint-initdb.d/postgres_init.sql
