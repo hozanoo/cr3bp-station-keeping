@@ -1,9 +1,6 @@
 version: "3.9"
 
 services:
-  # -----------------------------
-  # POSTGRES
-  # -----------------------------
   postgres:
     build:
       context: ..
@@ -18,9 +15,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  # -----------------------------
-  # PGADMIN
-  # -----------------------------
   pgadmin:
     image: dpage/pgadmin4:8
     container_name: cr3bp_pgadmin
@@ -32,9 +26,6 @@ services:
     depends_on:
       - postgres
 
-  # -----------------------------
-  # AIRFLOW
-  # -----------------------------
   airflow:
     build:
       context: ..
@@ -46,21 +37,45 @@ services:
       - .env
       - docker/config/airflow_settings.env
     environment:
-      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__EXECUTOR: ${AIRFLOW__CORE__EXECUTOR}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      AIRFLOW__DATABASE__LOAD_DEFAULT_CONNECTIONS: ${AIRFLOW__DATABASE__LOAD_DEFAULT_CONNECTIONS}
+
+      AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+      AIRFLOW_ADMIN_FIRSTNAME: ${AIRFLOW_ADMIN_FIRSTNAME}
+      AIRFLOW_ADMIN_LASTNAME: ${AIRFLOW_ADMIN_LASTNAME}
+      AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL}
+
+      # CR3BP DB configuration for db_connection.py (GLOBAL)
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: cr3bp_db
+      DB_USER: cr3bp_user
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+
+      # Tell Airflow where the DAGs live inside the container
       AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/data_pipeline/dags
-      CR3BP_DATABASE_URL: postgresql+psycopg2://cr3bp_user:${POSTGRES_PASSWORD}@postgres:5432/cr3bp_db
+
     volumes:
       - airflow_logs:/opt/airflow/logs
-      # Shared raw exports folder (host ↔ airflow ↔ sim)
       - ../data_pipeline/raw_exports:/opt/airflow/data_pipeline/raw_exports
     ports:
       - "8080:8080"
-    command: ["airflow", "standalone"]
+    command:
+      - bash
+      - -c
+      - >
+        airflow db init &&
+        airflow users create
+          --username "${AIRFLOW_ADMIN_USERNAME}"
+          --password "${AIRFLOW_ADMIN_PASSWORD}"
+          --firstname "${AIRFLOW_ADMIN_FIRSTNAME}"
+          --lastname "${AIRFLOW_ADMIN_LASTNAME}"
+          --role Admin
+          --email "${AIRFLOW_ADMIN_EMAIL}" || true &&
+        airflow webserver & airflow scheduler
 
-  # -----------------------------
-  # SIM (Python + RL + Pipeline)
-  # -----------------------------
   sim:
     build:
       context: ..
@@ -73,14 +88,18 @@ services:
       - .env
     environment:
       CR3BP_DATABASE_URL: postgresql+psycopg2://cr3bp_user:${POSTGRES_PASSWORD}@postgres:5432/cr3bp_db
+
+      # ensure sim uses db_connection.py correctly
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: cr3bp_db
+      DB_USER: cr3bp_user
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+
     command: bash
     volumes:
-      # Same raw_exports directory inside the sim container
       - ../data_pipeline/raw_exports:/app/data/raw_exports
 
-  # -----------------------------
-  # CESIUM
-  # -----------------------------
   cesium:
     build:
       context: ..
