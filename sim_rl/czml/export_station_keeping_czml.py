@@ -1,3 +1,5 @@
+# sim_rl/czml/export_station_keeping_czml.py
+
 """
 Export a station-keeping PPO rollout to a CesiumJS CZML file.
 
@@ -16,12 +18,6 @@ Assumptions
 - A GLTF spacecraft model is expected at
   ``sim_rl/czml/Gateway_Core.glb``; if missing, a Cesium sample
   model is used as fallback.
-
-Typical usage from the project root:
-
-.. code-block:: bash
-
-    python -m sim_rl.czml.export_station_keeping_czml
 """
 
 from __future__ import annotations
@@ -41,33 +37,25 @@ import matplotlib.pyplot as plt
 
 SCENARIO_NAME = "earth-moon-L1-3D"
 
-# Base run directory: sim_rl/training/runs
 BASE_RUN_DIR = Path(__file__).resolve().parents[1] / "training" / "runs"
-
-# Base directory of this script: sim_rl/czml
 HERE = Path(__file__).resolve().parent
 
 CZML_FILENAME = HERE / "station_keeping_mission.czml"
-
-# Local GLTF model (ignored by Git, see .gitignore)
 MODEL_FILENAME = HERE / "Gateway_Core.glb"
 
-# Number of steps to export from the rollout
 MAX_STEPS = 4000
 
-# CR3BP physics constants
 MU_EM = 0.0121505856
-DT = 0.01  # CR3BP integration timestep
+DT = 0.01
 SIDEREAL_MONTH_SEC = 27.321661 * 24 * 3600
-SCALE_FACTOR = 384_400_000.0  # map CR3BP distance units to meters
+SCALE_FACTOR = 384_400_000.0
 
-# Cesium clock start time (arbitrary but fixed)
 START_TIME = datetime.datetime(
     2026, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc
 )
 
 # --------------------------------------------------------------------
-# 2. Resolve GLTF model path / fallback URL
+# 2. Correct GLTF model path (IMPORTANT FIX)
 # --------------------------------------------------------------------
 
 FALLBACK_MODEL_URL = (
@@ -75,8 +63,11 @@ FALLBACK_MODEL_URL = (
     "Apps/SampleData/models/CesiumAir/Cesium_Air.glb"
 )
 
+# IMPORTANT CHANGE:
+# Instead of writing absolute Windows path ("C:/..."),
+# write a relative path so Cesium over Nginx can load it.
 if MODEL_FILENAME.exists():
-    model_uri = str(MODEL_FILENAME)
+    model_uri = MODEL_FILENAME.name  # <-- USE RELATIVE URL
     print(f"[INFO] Local GLTF model found: {MODEL_FILENAME}")
 else:
     model_uri = FALLBACK_MODEL_URL
@@ -86,7 +77,7 @@ else:
     )
 
 # --------------------------------------------------------------------
-# 3. Locate run directory and rollout CSV
+# 3. Locate rollout directory
 # --------------------------------------------------------------------
 
 scenario_root = BASE_RUN_DIR / SCENARIO_NAME
@@ -114,7 +105,6 @@ print(f"[INFO] Loading rollout CSV: {csv_path}")
 df = pd.read_csv(csv_path)
 df.columns = df.columns.str.strip()
 
-# Limit the number of steps exported
 if len(df) > MAX_STEPS:
     df = df.iloc[:MAX_STEPS].reset_index(drop=True)
     print(f"[INFO] Using first {MAX_STEPS} steps from rollout.")
@@ -122,7 +112,7 @@ else:
     print(f"[INFO] Using all {len(df)} steps from rollout.")
 
 # --------------------------------------------------------------------
-# 4. Extract positions and delta-v data
+# 4. Extract position and Δv
 # --------------------------------------------------------------------
 
 required_pos_cols = {"x0", "x1", "x2"}
@@ -133,7 +123,6 @@ x_rel = df["x0"].to_numpy()
 y_rel = df["x1"].to_numpy()
 z_rel = df["x2"].to_numpy()
 
-# Delta-v visualisation strength → path color
 if {"dv0", "dv1", "dv2"}.issubset(df.columns):
     dv_vecs = df[["dv0", "dv1", "dv2"]].to_numpy()
     dv_norms = np.linalg.norm(dv_vecs, axis=1)
@@ -148,32 +137,28 @@ else:
     print("[INFO] No dv0/dv1/dv2 columns found. Using constant path color.")
 
 # --------------------------------------------------------------------
-# 5. Rotating → inertial transform and time construction
+# 5. Rotating->Inertial transform & timestamps
 # --------------------------------------------------------------------
 
 seconds_per_step = DT * (SIDEREAL_MONTH_SEC / (2 * np.pi))
 
 cmap = plt.get_cmap("coolwarm")
-rgba_time_list: list[float | int] = []
-moon_pos_data: list[float | int | str] = []
-probe_pos_data: list[float | int | str] = []
+rgba_time_list = []
+moon_pos_data = []
+probe_pos_data = []
 
-# Earth and Moon positions in the rotating CR3BP frame
 pos_earth_rot = np.array([-MU_EM, 0.0, 0.0])
 pos_moon_rot = np.array([1.0 - MU_EM, 0.0, 0.0])
 
 for i in range(len(df)):
-    step_idx = i
-    t_rot = step_idx * DT
-
+    t_rot = i * DT
     c, s = np.cos(t_rot), np.sin(t_rot)
 
     current_time = START_TIME + datetime.timedelta(
-        seconds=float(step_idx * seconds_per_step)
+        seconds=float(i * seconds_per_step)
     )
     iso_time = current_time.isoformat().replace("+00:00", "Z")
 
-    # Delta-v magnitude → path color and alpha
     rgba = cmap(norm_dv[i])
     alpha = int(150 + 105 * norm_dv[i])
     rgba_time_list.extend(
@@ -187,9 +172,6 @@ for i in range(len(df)):
     )
 
     def rot(vec: np.ndarray) -> np.ndarray:
-        """
-        Rotate a vector from rotating CR3BP frame to inertial frame.
-        """
         return np.array(
             [
                 vec[0] * c - vec[1] * s,
@@ -205,22 +187,8 @@ for i in range(len(df)):
     moon_final = (moon_in - earth_in) * SCALE_FACTOR
     probe_final = (probe_in - earth_in) * SCALE_FACTOR
 
-    moon_pos_data.extend(
-        [
-            iso_time,
-            float(moon_final[0]),
-            float(moon_final[1]),
-            float(moon_final[2]),
-        ]
-    )
-    probe_pos_data.extend(
-        [
-            iso_time,
-            float(probe_final[0]),
-            float(probe_final[1]),
-            float(probe_final[2]),
-        ]
-    )
+    moon_pos_data.extend([iso_time, *map(float, moon_final)])
+    probe_pos_data.extend([iso_time, *map(float, probe_final)])
 
 end_time = START_TIME + datetime.timedelta(
     seconds=float((len(df) - 1) * seconds_per_step)
@@ -232,7 +200,7 @@ interval_str = (
 )
 
 # --------------------------------------------------------------------
-# 6. Build CZML document
+# 6. Build CZML
 # --------------------------------------------------------------------
 
 czml = [
@@ -243,7 +211,7 @@ czml = [
         "clock": {
             "interval": interval_str,
             "currentTime": START_TIME.isoformat().replace("+00:00", "Z"),
-            "multiplier": 3600 * 6,  # 6 hours per real second
+            "multiplier": 3600 * 6,
             "range": "LOOP_STOP",
             "step": "SYSTEM_CLOCK_MULTIPLIER",
         },
@@ -257,7 +225,7 @@ czml = [
             "cartesian": moon_pos_data,
         },
         "ellipsoid": {
-            "radii": {"cartesian": [1_737_400.0, 1_737_400.0, 1_737_400.0]},
+            "radii": {"cartesian": [1_737_400, 1_737_400, 1_737_400]},
             "material": {
                 "image": {
                     "uri": (
@@ -266,13 +234,6 @@ czml = [
                     )
                 }
             },
-        },
-        "label": {
-            "text": "Moon",
-            "font": "12pt monospace",
-            "style": "FILL_AND_OUTLINE",
-            "pixelOffset": {"cartesian2": [0, 30]},
-            "showBackground": True,
         },
     },
     {
@@ -284,7 +245,7 @@ czml = [
             "cartesian": probe_pos_data,
         },
         "model": {
-            "gltf": model_uri,
+            "gltf": model_uri,     # <-- FIXED
             "scale": 2000.0,
             "minimumPixelSize": 128,
             "show": True,
