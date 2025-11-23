@@ -40,3 +40,6 @@ sim_rl/czml/*.glb
 
 data_pipeline/raw_exports/*
 !data_pipeline/raw_exports/.gitkeep
+
+deploy/.env
+*.env

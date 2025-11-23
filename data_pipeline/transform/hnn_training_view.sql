@@ -1,26 +1,30 @@
 CREATE OR REPLACE VIEW hnn_training_view AS
 SELECT
-    ep.episode_id,
-    ep.system_id,
-    s.name AS system_name,
-    ep.frame_id,
-    f.name AS frame_name,
-    ep.dim,
+    run.run_id,
+    run.system_id,
+    sys.name AS system_name,
+    run.lagrange_point_id,
+    lp.name AS lagrange_point_name,
+    run.scenario_name,
 
+    ts.step,
     ts.t,
     ts.x,
     ts.y,
     ts.z,
-    ts.dx AS vx,
-    ts.dy AS vy,
-    ts.dz AS vz
+    ts.vx,
+    ts.vy,
+    ts.vz
 
 FROM cr3bp_trajectory_sample AS ts
-JOIN cr3bp_episode AS ep ON ep.episode_id = ts.episode_id
-JOIN cr3bp_system  AS s  ON s.system_id = ep.system_id
-JOIN cr3bp_frame   AS f  ON f.frame_id = ep.frame_id
+JOIN cr3bp_simulation_run AS run
+    ON run.run_id = ts.run_id
+JOIN cr3bp_system AS sys
+    ON sys.system_id = run.system_id
+JOIN cr3bp_lagrange_point AS lp
+    ON lp.lagrange_point_id = run.lagrange_point_id
 
--- nur rotating-frame Simulationen verwenden
-WHERE f.name = 'rotating'
+-- all current simulations are in the rotating frame by construction
+-- (frame_default is stored in cr3bp_system if needed later)
 
-ORDER BY ep.episode_id, ts.t;
+ORDER BY run.run_id, ts.step;

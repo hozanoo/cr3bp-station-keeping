@@ -7,4 +7,4 @@ The project expects a GLTF/GLB spacecraft model at:
 Due to file size it is not included in the Git repository.  
 A reference model can be downloaded from:
 
-https://github.com/CesiumGS/3d-tiles-samples/tree/main/models
+https://science.nasa.gov/3d-resources/gateway-lunar-space-station/
