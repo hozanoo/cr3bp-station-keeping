@@ -44,10 +44,13 @@ SCENARIO_NAME = "earth-moon-L1-3D"
 # Base run directory: sim_rl/training/runs
 BASE_RUN_DIR = Path(__file__).resolve().parents[1] / "training" / "runs"
 
-CZML_FILENAME = "station_keeping_mission.czml"
+# Base directory of this script: sim_rl/czml
+HERE = Path(__file__).resolve().parent
+
+CZML_FILENAME = HERE / "station_keeping_mission.czml"
 
 # Local GLTF model (ignored by Git, see .gitignore)
-MODEL_FILENAME = "Gateway_Core.glb"
+MODEL_FILENAME = HERE / "Gateway_Core.glb"
 
 # Number of steps to export from the rollout
 MAX_STEPS = 4000
@@ -72,8 +75,8 @@ FALLBACK_MODEL_URL = (
     "Apps/SampleData/models/CesiumAir/Cesium_Air.glb"
 )
 
-if os.path.exists(MODEL_FILENAME):
-    model_uri = MODEL_FILENAME
+if MODEL_FILENAME.exists():
+    model_uri = str(MODEL_FILENAME)
     print(f"[INFO] Local GLTF model found: {MODEL_FILENAME}")
 else:
     model_uri = FALLBACK_MODEL_URL
@@ -311,7 +314,7 @@ czml = [
 # 7. Write CZML
 # --------------------------------------------------------------------
 
-with open(CZML_FILENAME, "w", encoding="utf-8") as f:
+with CZML_FILENAME.open("w", encoding="utf-8") as f:
     json.dump(czml, f)
 
 print("------------------------------------------------------------")

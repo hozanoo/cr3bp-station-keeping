@@ -16,6 +16,12 @@ variables for the HNN physics database are:
 - HNN_DB_PASSWORD
 
 If a DSN string is preferred, HNN_DB_DSN can be set instead.
+
+For the CR3BP project inside Docker, a SQLAlchemy-style URL such as
+
+- CR3BP_DATABASE_URL=postgresql+psycopg2://user:password@postgres:5432/dbname
+
+is also supported and automatically converted to a psycopg2-compatible DSN.
 """
 
 from __future__ import annotations
@@ -50,6 +56,9 @@ class DbConfig:
         If a DSN is provided via ``<PREFIX>DSN``, it will be stored
         in the ``dsn`` field and used directly when connecting.
 
+        Additionally, if ``CR3BP_DATABASE_URL`` is set, it is used as a
+        fallback DSN (after stripping optional ``+psycopg2`` for psycopg2).
+
         Parameters
         ----------
         prefix:
@@ -61,7 +70,19 @@ class DbConfig:
         DbConfig
             Parsed configuration.
         """
-        dsn = os.getenv(f"{prefix}DSN")
+        # 1) DSN via <PREFIX>DSN
+        raw_dsn = os.getenv(f"{prefix}DSN")
+
+        # 2) Fallback: CR3BP_DATABASE_URL (e.g. from docker-compose)
+        if not raw_dsn:
+            raw_dsn = os.getenv("CR3BP_DATABASE_URL")
+
+        dsn: Optional[str] = None
+        if raw_dsn:
+            # psycopg2 versteht "postgresql://", aber nicht "postgresql+psycopg2://"
+            if "+psycopg2" in raw_dsn:
+                raw_dsn = raw_dsn.replace("+psycopg2", "")
+            dsn = raw_dsn
 
         host = os.getenv(f"{prefix}HOST", "localhost")
         port_str = os.getenv(f"{prefix}PORT", "5432")

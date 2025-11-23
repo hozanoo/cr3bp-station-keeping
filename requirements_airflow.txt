@@ -1,0 +1,7 @@
+gymnasium==0.29.1
+numpy
+pandas
+scipy
+tqdm
+matplotlib
+psycopg2-binary

@@ -1,5 +1,4 @@
-# deploy/docker/Dockerfile.postgres
 FROM postgres:16
 
 # Initial SQL script to create schemas, tables, etc.
-COPY deploy/config/postgres_init.sql /docker-entrypoint-initdb.d/postgres_init.sql
+COPY deploy/docker/config/postgres_init.sql /docker-entrypoint-initdb.d/postgres_init.sql

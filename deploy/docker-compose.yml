@@ -1,58 +1,95 @@
-# deploy/docker-compose.yml
 version: "3.9"
 
 services:
+  # -----------------------------
+  # POSTGRES
+  # -----------------------------
   postgres:
     build:
       context: ..
       dockerfile: deploy/docker/Dockerfile.postgres
-    env_file:
-      - .env
+    container_name: cr3bp_postgres
     environment:
-      POSTGRES_DB: cr3bp_db
       POSTGRES_USER: cr3bp_user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: cr3bp_db
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  # -----------------------------
+  # PGADMIN
+  # -----------------------------
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: cr3bp_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
+  # -----------------------------
+  # AIRFLOW
+  # -----------------------------
   airflow:
     build:
       context: ..
       dockerfile: deploy/docker/Dockerfile.airflow
+    container_name: cr3bp_airflow
     depends_on:
       - postgres
     env_file:
       - .env
+      - docker/config/airflow_settings.env
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
-      CR3BP_DATABASE_URL: "postgresql+psycopg2://cr3bp_user:${POSTGRES_PASSWORD}@postgres:5432/cr3bp_db"
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/data_pipeline/dags
+      CR3BP_DATABASE_URL: postgresql+psycopg2://cr3bp_user:${POSTGRES_PASSWORD}@postgres:5432/cr3bp_db
     volumes:
-      - ../data_pipeline:/opt/airflow/data_pipeline
       - airflow_logs:/opt/airflow/logs
+      # Shared raw exports folder (host ↔ airflow ↔ sim)
+      - ../data_pipeline/raw_exports:/opt/airflow/data_pipeline/raw_exports
     ports:
       - "8080:8080"
+    command: ["airflow", "standalone"]
 
+  # -----------------------------
+  # SIM (Python + RL + Pipeline)
+  # -----------------------------
   sim:
     build:
       context: ..
       dockerfile: deploy/docker/Dockerfile.sim
+    container_name: cr3bp_sim
     depends_on:
       - postgres
     working_dir: /app
-    command: bash
     env_file:
       - .env
+    environment:
+      CR3BP_DATABASE_URL: postgresql+psycopg2://cr3bp_user:${POSTGRES_PASSWORD}@postgres:5432/cr3bp_db
+    command: bash
+    volumes:
+      # Same raw_exports directory inside the sim container
+      - ../data_pipeline/raw_exports:/app/data/raw_exports
 
+  # -----------------------------
+  # CESIUM
+  # -----------------------------
   cesium:
     build:
       context: ..
       dockerfile: deploy/docker/Dockerfile.cesium
-    ports:
-      - "8000:80"
+    container_name: cr3bp_cesium
     depends_on:
       - sim
+    ports:
+      - "8000:80"
 
 volumes:
   postgres_data:

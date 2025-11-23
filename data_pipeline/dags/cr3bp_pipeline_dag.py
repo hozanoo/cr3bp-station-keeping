@@ -1,14 +1,26 @@
-# data_pipline/dags/cr3bp_pipeline_dag.py
+# data_pipeline/dags/cr3bp_pipeline_dag.py
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
+import sys
+
+# ---------------------------------------------------------------------------
+# Sys.path fix:
+# Wir hängen den Projekt-Root (/opt/airflow) an sys.path,
+# damit "import data_pipeline. ..." im Container funktioniert.
+# ---------------------------------------------------------------------------
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # -> /opt/airflow
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
 from data_pipeline.extract.cr3bp_batch_exporter import generate_batch_simulations
 from data_pipeline.load.loader_postgres import load_raw_export_directory
+
 
 DEFAULT_ARGS = {
     "owner": "airflow",
@@ -24,17 +36,15 @@ with DAG(
     description="Daily CR3BP batch simulations → raw CSV → Postgres load",
     default_args=DEFAULT_ARGS,
     start_date=datetime(2025, 1, 1),
-    schedule_interval="0 3 * * *",   # daily at 03:00
+    schedule_interval="0 * * * *",  # jede volle Stunde
     catchup=False,
     max_active_runs=1,
 ) as dag:
 
-    def task_generate_simulations():
-        # This function is implemented in extract/cr3bp_batch_exporter.py
+    def task_generate_simulations() -> None:
         generate_batch_simulations()
 
-    def task_load_csvs():
-        # Loads ALL CSVs found in data_pipline/data/raw_exports/
+    def task_load_csvs() -> None:
         load_raw_export_directory()
 
     generate = PythonOperator(

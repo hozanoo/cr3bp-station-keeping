@@ -1,12 +1,35 @@
-# deploy/docker/Dockerfile.airflow
 FROM apache/airflow:2.9.1-python3.11
 
+# --------------------------------------------------------------------
+# 1) Extra Python-Packages als *airflow*-User installieren
+#    (das will das offizielle Image so, nicht als root!)
+# --------------------------------------------------------------------
+USER airflow
+
+# Requirements-Datei ins Image kopieren
+COPY requirements_airflow.txt /opt/airflow/requirements_airflow.txt
+
+# Zusätzliche Python-Pakete installieren
+RUN pip install --no-cache-dir -r /opt/airflow/requirements_airflow.txt
+
+# --------------------------------------------------------------------
+# 2) Projekt-Code kopieren und Pfade setzen
+# --------------------------------------------------------------------
 USER root
 
-RUN mkdir -p /opt/airflow/data/raw /opt/airflow/data/processed \
-    && chown -R airflow:airflow /opt/airflow/data
+# Optionale Data-Folder
+RUN mkdir -p /opt/airflow/data/raw /opt/airflow/data/processed
 
-# DAGs und Pipeline-Code kommen über das Volume aus docker-compose
-ENV AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/data_pipeline/dags
+# Deine Pipelines und Simulations-Lib ins Image kopieren
+COPY data_pipeline /opt/airflow/data_pipeline
+COPY sim_rl        /opt/airflow/sim_rl
 
+# PYTHONPATH so setzen, dass data_pipeline / sim_rl importierbar sind
+ENV PYTHONPATH="/opt/airflow:${PYTHONPATH}"
+
+# raw_exports-Ordner anlegen und Rechte setzen
+RUN mkdir -p /opt/airflow/data_pipeline/raw_exports \
+    && chown -R airflow:0 /opt/airflow
+
+# Am Ende wieder als airflow-User laufen
 USER airflow

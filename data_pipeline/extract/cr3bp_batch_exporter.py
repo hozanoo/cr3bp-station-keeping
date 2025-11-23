@@ -6,19 +6,18 @@ This module produces multiple physics-only CR3BP simulations and stores
 their trajectories as CSV files. The simulations are based on the core
 CR3BP integrator from sim_rl and contain only (t, x, y, z, vx, vy, vz)
 without any reinforcement-learning information.
-
-Intended to be scheduled daily through an Airflow DAG.
 """
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+from typing import List
+
 import numpy as np
 import pandas as pd
 
-from sim_rl.cr3bp.scenarios import ScenarioConfig, SCENARIOS
+from sim_rl.cr3bp.scenarios import SCENARIOS, ScenarioConfig
 from sim_rl.cr3bp.env_cr3bp_station_keeping import Cr3bpStationKeepingEnv
 
 
@@ -32,25 +31,7 @@ def simulate_single_run(
     steps: int = 3000,
     seed: int | None = None,
 ) -> pd.DataFrame:
-    """
-    Run a physics-only CR3BP simulation using the base environment
-    without applying any control actions.
-
-    Parameters
-    ----------
-    scenario : ScenarioConfig
-        The CR3BP configuration (system, L-point, dimension).
-    steps : int
-        Number of simulation steps to perform.
-    seed : int or None
-        Random seed for initial state perturbations.
-
-    Returns
-    -------
-    pandas.DataFrame
-        A DataFrame containing the trajectory with columns:
-        [t, x, y, z, vx, vy, vz]
-    """
+    """Run a physics-only CR3BP simulation without control actions."""
     env = Cr3bpStationKeepingEnv(scenario=scenario, seed=seed)
 
     obs, _ = env.reset()
@@ -60,7 +41,6 @@ def simulate_single_run(
     records = []
 
     for k in range(steps):
-        # No control input → zero delta-v
         action = np.zeros(dim, dtype=np.float32)
 
         obs, reward, done, truncated, info = env.step(action)
@@ -95,38 +75,27 @@ def simulate_single_run(
 
 def export_batch(
     scenario_name: str = "earth-moon-L1-3D",
-    n_simulations: int = 20,
-    steps_per_sim: int = 3000,
-) -> list[Path]:
-    """
-    Generate multiple CR3BP physics trajectories and save them to CSV.
-
-    Parameters
-    ----------
-    scenario_name : str
-        Which scenario from SCENARIOS to use.
-    n_simulations : int
-        Number of simulations to generate.
-    steps_per_sim : int
-        Steps per trajectory.
-
-    Returns
-    -------
-    list[Path]
-        List of file paths of generated CSV files.
-    """
+    n_simulations: int = 300,
+    steps_per_sim: int = 6000,
+) -> List[Path]:
+    """Generate multiple CR3BP trajectories and save them to CSV."""
     if scenario_name not in SCENARIOS:
         raise KeyError(f"Scenario {scenario_name!r} not defined.")
 
     scenario = SCENARIOS[scenario_name]
 
-    export_dir = EXPORT_ROOT / scenario_name / datetime.now().strftime("%Y%m%d")
+    # Zeitstempel: Datum + eindeutiger Run-Ordner pro Batch
+    now = datetime.utcnow()
+    date_str = now.strftime("%Y%m%d")
+    run_str = now.strftime("%Y%m%d_%H%M%S_%f")
+
+    export_dir = EXPORT_ROOT / scenario_name / date_str / run_str
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    csv_paths = []
+    csv_paths: List[Path] = []
 
     for i in range(n_simulations):
-        seed = np.random.randint(0, 2**32 - 1)
+        seed = int(np.random.randint(0, 2**32 - 1))
         df = simulate_single_run(scenario, steps=steps_per_sim, seed=seed)
 
         filename = f"traj_{i:03d}.csv"
@@ -138,9 +107,13 @@ def export_batch(
     return csv_paths
 
 
+def generate_batch_simulations() -> List[Path]:
+    """Convenience wrapper used by the Airflow DAG."""
+    return export_batch()
+
+
 if __name__ == "__main__":
-    print("Generating CR3BP batch...")
-    paths = export_batch()
+    paths = generate_batch_simulations()
     print(f"Generated {len(paths)} trajectories:")
     for p in paths:
-        print("  →", p)
+        print("  ->", p)

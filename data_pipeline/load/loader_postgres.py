@@ -1,54 +1,15 @@
-# data_pipline/load/loader_postgres.py
+# data_pipeline/load/loader_postgres.py
 """
-Loader for CR3BP trajectory CSVs into the HNN training database.
-
-This module reads raw trajectory files (CSV) produced by
-``data_pipline.extract.cr3bp_batch_exporter`` and loads them into a
-normalized PostgreSQL schema.
-
-Schema overview
----------------
-
-The loader expects (or creates) the following tables:
-
-- cr3bp_system
-    - id SERIAL PRIMARY KEY
-    - name TEXT UNIQUE NOT NULL
-    - frame_default TEXT NOT NULL
-- cr3bp_lagrange_point
-    - id SERIAL PRIMARY KEY
-    - system_id INT NOT NULL REFERENCES cr3bp_system(id)
-    - name TEXT NOT NULL
-    - UNIQUE (system_id, name)
-- cr3bp_simulation_run
-    - id UUID PRIMARY KEY
-    - system_id INT NOT NULL REFERENCES cr3bp_system(id)
-    - lagrange_point_id INT NOT NULL REFERENCES cr3bp_lagrange_point(id)
-    - scenario_name TEXT NOT NULL
-    - created_at TIMESTAMPTZ NOT NULL
-    - source_file TEXT NOT NULL
-- cr3bp_trajectory_sample
-    - run_id UUID NOT NULL REFERENCES cr3bp_simulation_run(id)
-    - step INT NOT NULL
-    - t DOUBLE PRECISION NOT NULL
-    - x DOUBLE PRECISION NOT NULL
-    - y DOUBLE PRECISION NOT NULL
-    - z DOUBLE PRECISION NOT NULL
-    - vx DOUBLE PRECISION NOT NULL
-    - vy DOUBLE PRECISION NOT NULL
-    - vz DOUBLE PRECISION NOT NULL
-    - PRIMARY KEY (run_id, step)
-
-The loader can be used both from Airflow (as a PythonOperator) and
-from the command line for manual imports.
+Loader for CR3BP trajectory CSVs into PostgreSQL.
+Creates tables, foreign keys, and loads all trajectory CSVs.
 """
 
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from datetime import datetime
-from typing import Iterable
+from pathlib import Path
+from typing import List
 
 import pandas as pd
 
@@ -59,21 +20,15 @@ from sim_rl.cr3bp.scenarios import SCENARIOS
 RAW_EXPORT_ROOT = Path(__file__).resolve().parent.parent / "raw_exports"
 
 
-# ---------------------------------------------------------------------------
-# Schema helpers
-# ---------------------------------------------------------------------------
-
-
+# -----------------------------------------------------------
+# 1) SCHEMA FIXED — using system_id / lagrange_point_id / run_id
+# -----------------------------------------------------------
 def ensure_schema() -> None:
-    """
-    Create the required tables if they do not exist.
+    """Create the required tables if they do not exist."""
 
-    This function is idempotent and can be called before each load
-    run without side effects.
-    """
     ddl_system = """
     CREATE TABLE IF NOT EXISTS cr3bp_system (
-        id SERIAL PRIMARY KEY,
+        system_id SERIAL PRIMARY KEY,
         name TEXT UNIQUE NOT NULL,
         frame_default TEXT NOT NULL CHECK (
             frame_default IN ('rotating', 'inertial', 'barycentric')
@@ -83,18 +38,18 @@ def ensure_schema() -> None:
 
     ddl_lpoint = """
     CREATE TABLE IF NOT EXISTS cr3bp_lagrange_point (
-        id SERIAL PRIMARY KEY,
-        system_id INT NOT NULL REFERENCES cr3bp_system(id),
+        lagrange_point_id SERIAL PRIMARY KEY,
+        system_id INT NOT NULL REFERENCES cr3bp_system(system_id),
         name TEXT NOT NULL,
-        UNIQUE (system_id, name)
+        UNIQUE(system_id, name)
     );
     """
 
     ddl_run = """
     CREATE TABLE IF NOT EXISTS cr3bp_simulation_run (
-        id UUID PRIMARY KEY,
-        system_id INT NOT NULL REFERENCES cr3bp_system(id),
-        lagrange_point_id INT NOT NULL REFERENCES cr3bp_lagrange_point(id),
+        run_id UUID PRIMARY KEY,
+        system_id INT NOT NULL REFERENCES cr3bp_system(system_id),
+        lagrange_point_id INT NOT NULL REFERENCES cr3bp_lagrange_point(lagrange_point_id),
         scenario_name TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL,
         source_file TEXT NOT NULL
@@ -103,7 +58,7 @@ def ensure_schema() -> None:
 
     ddl_sample = """
     CREATE TABLE IF NOT EXISTS cr3bp_trajectory_sample (
-        run_id UUID NOT NULL REFERENCES cr3bp_simulation_run(id),
+        run_id UUID NOT NULL REFERENCES cr3bp_simulation_run(run_id),
         step INT NOT NULL,
         t DOUBLE PRECISION NOT NULL,
         x DOUBLE PRECISION NOT NULL,
@@ -123,23 +78,20 @@ def ensure_schema() -> None:
         cur.execute(ddl_sample)
 
 
+# -----------------------------------------------------------
+# HELPERS TO GET OR CREATE KEYS
+# -----------------------------------------------------------
 def get_or_create_system(cur, name: str, frame_default: str = "rotating") -> int:
-    """
-    Return the id of the system with the given name, inserting it if needed.
-    """
-    cur.execute(
-        "SELECT id FROM cr3bp_system WHERE name = %s;",
-        (name,),
-    )
+    cur.execute("SELECT system_id FROM cr3bp_system WHERE name = %s;", (name,))
     row = cur.fetchone()
-    if row is not None:
+    if row:
         return row[0]
 
     cur.execute(
         """
         INSERT INTO cr3bp_system (name, frame_default)
         VALUES (%s, %s)
-        RETURNING id;
+        RETURNING system_id;
         """,
         (name, frame_default),
     )
@@ -147,107 +99,71 @@ def get_or_create_system(cur, name: str, frame_default: str = "rotating") -> int
 
 
 def get_or_create_lagrange_point(cur, system_id: int, name: str) -> int:
-    """
-    Return the id of the Lagrange point for a given system, inserting it if needed.
-    """
     cur.execute(
-        """
-        SELECT id
-        FROM cr3bp_lagrange_point
-        WHERE system_id = %s AND name = %s;
-        """,
+        "SELECT lagrange_point_id FROM cr3bp_lagrange_point WHERE system_id = %s AND name = %s;",
         (system_id, name),
     )
     row = cur.fetchone()
-    if row is not None:
+    if row:
         return row[0]
 
     cur.execute(
         """
         INSERT INTO cr3bp_lagrange_point (system_id, name)
         VALUES (%s, %s)
-        RETURNING id;
+        RETURNING lagrange_point_id;
         """,
         (system_id, name),
     )
     return cur.fetchone()[0]
 
 
-# ---------------------------------------------------------------------------
-# Load logic
-# ---------------------------------------------------------------------------
-
-
+# -----------------------------------------------------------
+# CSV LOADING
+# -----------------------------------------------------------
 def insert_run_and_trajectory(csv_path: Path, scenario_name: str) -> uuid.UUID:
-    """
-    Insert a single trajectory CSV into the database.
-
-    Parameters
-    ----------
-    csv_path:
-        Path to the CSV file with columns [t, x, y, z, vx, vy, vz].
-    scenario_name:
-        Name of the scenario (must exist in :data:`sim_rl.cr3bp.scenarios.SCENARIOS`).
-
-    Returns
-    -------
-    uuid.UUID
-        The primary key of the inserted simulation run.
-    """
+    """Insert a single trajectory CSV into the database."""
     if scenario_name not in SCENARIOS:
         raise KeyError(f"Scenario {scenario_name!r} not defined in SCENARIOS.")
 
     scenario = SCENARIOS[scenario_name]
-
     df = pd.read_csv(csv_path)
 
     expected_cols = {"t", "x", "y", "z", "vx", "vy", "vz"}
     if not expected_cols.issubset(df.columns):
-        raise ValueError(
-            f"CSV {csv_path} is missing required columns. "
-            f"Expected at least {sorted(expected_cols)}, got {list(df.columns)}"
-        )
+        raise ValueError(f"CSV {csv_path} missing required columns: {expected_cols}")
 
     run_id = uuid.uuid4()
     created_at = datetime.utcnow()
 
     with db_cursor(autocommit=False) as cur:
-        system_id = get_or_create_system(cur, scenario.system, frame_default="rotating")
+        system_id = get_or_create_system(cur, scenario.system)
         lpoint_id = get_or_create_lagrange_point(cur, system_id, scenario.lagrange_point)
 
         cur.execute(
             """
             INSERT INTO cr3bp_simulation_run (
-                id, system_id, lagrange_point_id,
+                run_id, system_id, lagrange_point_id,
                 scenario_name, created_at, source_file
-            )
-            VALUES (%s, %s, %s, %s, %s, %s);
+            ) VALUES (%s, %s, %s, %s, %s, %s);
             """,
-            (
-                str(run_id),
-                system_id,
-                lpoint_id,
-                scenario.name,
-                created_at,
-                str(csv_path),
-            ),
+            (str(run_id), system_id, lpoint_id, scenario.name, created_at, str(csv_path)),
         )
 
-        records = []
-        for i, row in df.iterrows():
-            records.append(
-                (
-                    str(run_id),
-                    int(i),
-                    float(row["t"]),
-                    float(row["x"]),
-                    float(row["y"]),
-                    float(row["z"]),
-                    float(row["vx"]),
-                    float(row["vy"]),
-                    float(row["vz"]),
-                )
+        records = [
+            (
+                str(run_id),
+                int(i),
+                float(row["t"]),
+                float(row["x"]),
+                float(row["y"]),
+                float(row["z"]),
+                float(row["vx"]),
+                float(row["vy"]),
+                float(row["vz"]),
             )
+            for i, row in df.iterrows()
+        ]
 
         cur.executemany(
             """
@@ -255,8 +171,7 @@ def insert_run_and_trajectory(csv_path: Path, scenario_name: str) -> uuid.UUID:
                 run_id, step, t,
                 x, y, z,
                 vx, vy, vz
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
             """,
             records,
         )
@@ -266,26 +181,10 @@ def insert_run_and_trajectory(csv_path: Path, scenario_name: str) -> uuid.UUID:
     return run_id
 
 
-def find_csv_files_for_date(
-    scenario_name: str,
-    date_str: str | None = None,
-) -> list[Path]:
-    """
-    Find all trajectory CSV files for a given scenario and date.
-
-    Parameters
-    ----------
-    scenario_name:
-        Name of the scenario (e.g. ``"earth-moon-L1-3D"``).
-    date_str:
-        Date folder in ``YYYYMMDD`` format. If omitted, today's date
-        is used.
-
-    Returns
-    -------
-    list[pathlib.Path]
-        List of CSV file paths sorted by name.
-    """
+# -----------------------------------------------------------
+# FIND FILES
+# -----------------------------------------------------------
+def find_csv_files_for_date(scenario_name: str, date_str: str | None = None) -> List[Path]:
     if date_str is None:
         date_str = datetime.utcnow().strftime("%Y%m%d")
 
@@ -293,52 +192,31 @@ def find_csv_files_for_date(
     if not base_dir.exists():
         return []
 
-    csv_paths = sorted(base_dir.glob("traj_*.csv"))
-    return csv_paths
+    subdirs = [d for d in base_dir.iterdir() if d.is_dir()]
+    search_dir = sorted(subdirs)[-1] if subdirs else base_dir
+
+    return sorted(search_dir.glob("traj_*.csv"))
 
 
-def load_batch_for_date(
-    scenario_name: str = "earth-moon-L1-3D",
-    date_str: str | None = None,
-) -> list[uuid.UUID]:
-    """
-    Load all trajectories for a scenario and date into the database.
-
-    Parameters
-    ----------
-    scenario_name:
-        Scenario used when the trajectories were generated.
-    date_str:
-        Date string in ``YYYYMMDD`` format. If omitted, today's date
-        is used.
-
-    Returns
-    -------
-    list[uuid.UUID]
-        List of run ids that have been inserted.
-    """
+# -----------------------------------------------------------
+# ENTRY POINTS
+# -----------------------------------------------------------
+def load_batch_for_date(scenario_name: str, date_str: str | None = None) -> List[uuid.UUID]:
     ensure_schema()
 
-    csv_paths = find_csv_files_for_date(scenario_name, date_str=date_str)
+    csv_paths = find_csv_files_for_date(scenario_name, date_str)
     if not csv_paths:
-        print(
-            f"[INFO] No CSV files found for scenario={scenario_name!r}, "
-            f"date={date_str!r} under {RAW_EXPORT_ROOT}"
-        )
+        print(f"[INFO] No CSVs for scenario={scenario_name}, date={date_str}")
         return []
 
-    run_ids: list[uuid.UUID] = []
-    for path in csv_paths:
-        run_id = insert_run_and_trajectory(path, scenario_name=scenario_name)
-        run_ids.append(run_id)
-        print(f"[INFO] Loaded CSV {path} as run {run_id}")
+    return [insert_run_and_trajectory(path, scenario_name) for path in csv_paths]
 
-    return run_ids
+
+def load_raw_export_directory() -> List[uuid.UUID]:
+    today = datetime.utcnow().strftime("%Y%m%d")
+    return load_batch_for_date("earth-moon-L1-3D", today)
 
 
 if __name__ == "__main__":
-    scenario = "earth-moon-L1-3D"
-    today = datetime.utcnow().strftime("%Y%m%d")
-    print(f"Loading batch for scenario={scenario}, date={today}")
-    ids = load_batch_for_date(scenario_name=scenario, date_str=today)
+    ids = load_raw_export_directory()
     print(f"Inserted {len(ids)} simulation runs.")
