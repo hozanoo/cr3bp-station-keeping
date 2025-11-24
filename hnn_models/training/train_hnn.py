@@ -16,6 +16,7 @@ from typing import Tuple
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from hnn_models.dataloader.hnn_dataset import HnnTrainingDataset, HnnDatasetConfig
 from hnn_models.model.hnn import HamiltonianNN
@@ -43,7 +44,7 @@ def create_dataloader(
 
 def train_hnn(
     dim: int = 3,
-    hidden_dims = (128, 128, 128),
+    hidden_dims=(128, 128, 128),
     batch_size: int = 1024,
     num_epochs: int = 20,
     learning_rate: float = 1e-3,
@@ -84,7 +85,8 @@ def train_hnn(
         dim=dim,
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Force CPU for now (current PyTorch does not support RTX 5070 Blackwell GPU)
+    device = torch.device("cpu")
 
     model = HamiltonianNN(dim=dim, hidden_dims=hidden_dims)
     state_mean = torch.from_numpy(dataset.state_mean).to(torch.float32)
@@ -101,7 +103,13 @@ def train_hnn(
         running_loss = 0.0
         n_batches = 0
 
-        for q, p, dq_dt_true, dp_dt_true in loader:
+        batch_iter = tqdm(
+            loader,
+            desc=f"Epoch {epoch + 1}/{num_epochs}",
+            leave=False,
+        )
+
+        for q, p, dq_dt_true, dp_dt_true in batch_iter:
             q = q.to(device=device, dtype=torch.float32)
             p = p.to(device=device, dtype=torch.float32)
             dq_dt_true = dq_dt_true.to(device=device, dtype=torch.float32)
@@ -120,6 +128,8 @@ def train_hnn(
 
             running_loss += float(loss.item())
             n_batches += 1
+
+            batch_iter.set_postfix(loss=float(loss.item()))
 
         avg_loss = running_loss / max(n_batches, 1)
         print(f"Epoch {epoch + 1}/{num_epochs}: loss={avg_loss:.6e}")

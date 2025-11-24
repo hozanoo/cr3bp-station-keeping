@@ -1,7 +1,18 @@
 # data_pipeline/load/loader_postgres.py
 """
 Loader for CR3BP trajectory CSVs into PostgreSQL.
-Creates tables, foreign keys, and loads all trajectory CSVs.
+Creates tables, manages foreign keys, and loads batch CSV trajectories.
+
+This loader is used by:
+- Domain A (simulation output)
+- Domain B (Airflow DAG)
+- Domain C (HNN training view depends on these tables)
+
+Schema:
+    cr3bp_system
+    cr3bp_lagrange_point
+    cr3bp_simulation_run
+    cr3bp_trajectory_sample
 """
 
 from __future__ import annotations
@@ -13,18 +24,19 @@ from typing import List
 
 import pandas as pd
 
-from data_pipeline.load.db_connection import db_cursor
+from data_pipeline.load.db_connection import db_cursor, DbConfig
 from sim_rl.cr3bp.scenarios import SCENARIOS
 
 
-RAW_EXPORT_ROOT = Path(__file__).resolve().parent.parent / "raw_exports"
+# Root where raw CSV batches land (mounted by Docker)
+RAW_EXPORT_ROOT = (Path(__file__).resolve().parent.parent / "raw_exports").resolve()
 
 
-# -----------------------------------------------------------
-# 1) SCHEMA FIXED — using system_id / lagrange_point_id / run_id
-# -----------------------------------------------------------
+# ============================================================
+# 1) SCHEMA CREATION
+# ============================================================
 def ensure_schema() -> None:
-    """Create the required tables if they do not exist."""
+    """Create tables if they do not exist."""
 
     ddl_system = """
     CREATE TABLE IF NOT EXISTS cr3bp_system (
@@ -58,7 +70,7 @@ def ensure_schema() -> None:
 
     ddl_sample = """
     CREATE TABLE IF NOT EXISTS cr3bp_trajectory_sample (
-        run_id UUID NOT NULL REFERENCES cr3bp_simulation_run(run_id),
+        run_id UUID NOT NULL REFERENCES cr3bp_simulation_run(run_id) ON DELETE CASCADE,
         step INT NOT NULL,
         t DOUBLE PRECISION NOT NULL,
         x DOUBLE PRECISION NOT NULL,
@@ -78,9 +90,9 @@ def ensure_schema() -> None:
         cur.execute(ddl_sample)
 
 
-# -----------------------------------------------------------
-# HELPERS TO GET OR CREATE KEYS
-# -----------------------------------------------------------
+# ============================================================
+# HELPERS
+# ============================================================
 def get_or_create_system(cur, name: str, frame_default: str = "rotating") -> int:
     cur.execute("SELECT system_id FROM cr3bp_system WHERE name = %s;", (name,))
     row = cur.fetchone()
@@ -100,7 +112,11 @@ def get_or_create_system(cur, name: str, frame_default: str = "rotating") -> int
 
 def get_or_create_lagrange_point(cur, system_id: int, name: str) -> int:
     cur.execute(
-        "SELECT lagrange_point_id FROM cr3bp_lagrange_point WHERE system_id = %s AND name = %s;",
+        """
+        SELECT lagrange_point_id
+        FROM cr3bp_lagrange_point
+        WHERE system_id = %s AND name = %s;
+        """,
         (system_id, name),
     )
     row = cur.fetchone()
@@ -118,11 +134,21 @@ def get_or_create_lagrange_point(cur, system_id: int, name: str) -> int:
     return cur.fetchone()[0]
 
 
-# -----------------------------------------------------------
-# CSV LOADING
-# -----------------------------------------------------------
+# ============================================================
+# INSERT CSV → DB
+# ============================================================
 def insert_run_and_trajectory(csv_path: Path, scenario_name: str) -> uuid.UUID:
-    """Insert a single trajectory CSV into the database."""
+    """
+    Insert a single CSV trajectory file into cr3bp_* tables.
+
+    Parameters
+    ----------
+    csv_path:
+        File to load.
+    scenario_name:
+        Name matching SCENARIOS dict.
+    """
+
     if scenario_name not in SCENARIOS:
         raise KeyError(f"Scenario {scenario_name!r} not defined in SCENARIOS.")
 
@@ -131,25 +157,33 @@ def insert_run_and_trajectory(csv_path: Path, scenario_name: str) -> uuid.UUID:
 
     expected_cols = {"t", "x", "y", "z", "vx", "vy", "vz"}
     if not expected_cols.issubset(df.columns):
-        raise ValueError(f"CSV {csv_path} missing required columns: {expected_cols}")
+        raise ValueError(
+            f"CSV {csv_path} missing required columns {expected_cols}"
+        )
 
     run_id = uuid.uuid4()
     created_at = datetime.utcnow()
 
     with db_cursor(autocommit=False) as cur:
+        # Get/Insert system
         system_id = get_or_create_system(cur, scenario.system)
+
+        # Get/Insert Lagrange point
         lpoint_id = get_or_create_lagrange_point(cur, system_id, scenario.lagrange_point)
 
+        # Insert run
         cur.execute(
             """
             INSERT INTO cr3bp_simulation_run (
                 run_id, system_id, lagrange_point_id,
                 scenario_name, created_at, source_file
-            ) VALUES (%s, %s, %s, %s, %s, %s);
+            )
+            VALUES (%s, %s, %s, %s, %s, %s);
             """,
             (str(run_id), system_id, lpoint_id, scenario.name, created_at, str(csv_path)),
         )
 
+        # Insert trajectory rows
         records = [
             (
                 str(run_id),
@@ -181,9 +215,9 @@ def insert_run_and_trajectory(csv_path: Path, scenario_name: str) -> uuid.UUID:
     return run_id
 
 
-# -----------------------------------------------------------
-# FIND FILES
-# -----------------------------------------------------------
+# ============================================================
+# FILE DISCOVERY
+# ============================================================
 def find_csv_files_for_date(scenario_name: str, date_str: str | None = None) -> List[Path]:
     if date_str is None:
         date_str = datetime.utcnow().strftime("%Y%m%d")
@@ -198,9 +232,9 @@ def find_csv_files_for_date(scenario_name: str, date_str: str | None = None) -> 
     return sorted(search_dir.glob("traj_*.csv"))
 
 
-# -----------------------------------------------------------
-# ENTRY POINTS
-# -----------------------------------------------------------
+# ============================================================
+# HIGH-LEVEL ENTRY POINTS
+# ============================================================
 def load_batch_for_date(scenario_name: str, date_str: str | None = None) -> List[uuid.UUID]:
     ensure_schema()
 

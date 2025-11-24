@@ -32,7 +32,8 @@ class HnnDatasetConfig:
     Configuration for the CR3BP HNN training dataset.
     """
     dim: int = 3
-    db_env_prefix: str = "HNN_DB_"
+    # Use the shared CR3BP DB prefix (DB_HOST, DB_PORT, ...)
+    db_env_prefix: str = "DB_"
     where_clause: Optional[str] = None
     limit: Optional[int] = None
     dtype: np.dtype = np.float32
@@ -79,7 +80,8 @@ class HnnTrainingDataset(Dataset):
     def _load_from_db(
         self,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        cfg = DbConfig.from_env(prefix=self.config.db_env_prefix)
+        # IMPORTANT: use prefix_env, not 'prefix'
+        cfg = DbConfig.from_env(prefix_env=self.config.db_env_prefix)
 
         base_query = """
             SELECT

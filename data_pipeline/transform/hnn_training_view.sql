@@ -1,5 +1,8 @@
 CREATE OR REPLACE VIEW hnn_training_view AS
 SELECT
+    run.run_id AS episode_id,
+    3 AS dim,
+
     run.run_id,
     run.system_id,
     sys.name AS system_name,
@@ -23,8 +26,5 @@ JOIN cr3bp_system AS sys
     ON sys.system_id = run.system_id
 JOIN cr3bp_lagrange_point AS lp
     ON lp.lagrange_point_id = run.lagrange_point_id
-
--- all current simulations are in the rotating frame by construction
--- (frame_default is stored in cr3bp_system if needed later)
 
 ORDER BY run.run_id, ts.step;
