@@ -79,6 +79,9 @@ def ensure_schema() -> None:
         vx DOUBLE PRECISION NOT NULL,
         vy DOUBLE PRECISION NOT NULL,
         vz DOUBLE PRECISION NOT NULL,
+        ax DOUBLE PRECISION NOT NULL,
+        ay DOUBLE PRECISION NOT NULL,
+        az DOUBLE PRECISION NOT NULL,
         PRIMARY KEY (run_id, step)
     );
     """
@@ -155,7 +158,7 @@ def insert_run_and_trajectory(csv_path: Path, scenario_name: str) -> uuid.UUID:
     scenario = SCENARIOS[scenario_name]
     df = pd.read_csv(csv_path)
 
-    expected_cols = {"t", "x", "y", "z", "vx", "vy", "vz"}
+    expected_cols = {"t", "x", "y", "z", "vx", "vy", "vz", "ax", "ay", "az"}
     if not expected_cols.issubset(df.columns):
         raise ValueError(
             f"CSV {csv_path} missing required columns {expected_cols}"
@@ -195,6 +198,9 @@ def insert_run_and_trajectory(csv_path: Path, scenario_name: str) -> uuid.UUID:
                 float(row["vx"]),
                 float(row["vy"]),
                 float(row["vz"]),
+                float(row["ax"]),
+                float(row["ay"]),
+                float(row["az"]),
             )
             for i, row in df.iterrows()
         ]
@@ -204,8 +210,9 @@ def insert_run_and_trajectory(csv_path: Path, scenario_name: str) -> uuid.UUID:
             INSERT INTO cr3bp_trajectory_sample (
                 run_id, step, t,
                 x, y, z,
-                vx, vy, vz
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+                vx, vy, vz,
+                ax, ay, az
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
             """,
             records,
         )

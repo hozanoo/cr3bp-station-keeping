@@ -1,0 +1,347 @@
+Auflistung der Ordnerpfade für Volume Windows
+Volumeseriennummer : 5AB0-57BA
+C:.
+|   .gitignore
+|   project_tree.txt
+|   README.md
+|   requirements.txt
+|   requirements_airflow.txt
+|   
++---data_pipeline
+|   |   __init__.py
+|   |   
+|   +---dags
+|   |       cr3bp_pipeline_dag.py
+|   |       __init__.py
+|   |       
+|   +---data
+|   |   +---processed
+|   |   \---raw
+|   +---extract
+|   |       cr3bp_batch_exporter.py
+|   |       __init__.py
+|   |       
+|   +---load
+|   |   |   db_connection.py
+|   |   |   loader_postgres.py
+|   |   |   __init__.py
+|   |   |   
+|   |   \---__pycache__
+|   |           db_connection.cpython-310.pyc
+|   |           __init__.cpython-310.pyc
+|   |           
+|   +---raw_exports
+|   |   |   .gitkeep
+|   |   |   
+|   |   \---earth-moon-L1-3D
+|   +---transform
+|   |       hnn_training_view.sql
+|   |       __init__.py
+|   |       
+|   \---__pycache__
+|           __init__.cpython-310.pyc
+|           
++---deploy
+|   |   .env
+|   |   docker-compose.yml
+|   |   
+|   \---docker
+|       |   Dockerfile.airflow
+|       |   Dockerfile.cesium
+|       |   Dockerfile.postgres
+|       |   Dockerfile.sim
+|       |   
+|       \---config
+|               airflow_settings.env
+|               postgres_init.sql
+|               
++---hnn_models
+|   |   __init__.py
+|   |   
+|   +---checkpoints
+|   |       hnn_cr3bp_l1.pt
+|   |       hnn_cr3bp_l1_meta.json
+|   |       
+|   +---dataloader
+|   |   |   hnn_dataset.py
+|   |   |   preprocessing.py
+|   |   |   __init__.py
+|   |   |   
+|   |   \---__pycache__
+|   |           hnn_dataset.cpython-310.pyc
+|   |           preprocessing.cpython-310.pyc
+|   |           __init__.cpython-310.pyc
+|   |           
+|   +---hnn_env
+|   |       hnn_environment.py
+|   |       hnn_simulator.py
+|   |       __init__.py
+|   |       
+|   +---model
+|   |   |   hnn.py
+|   |   |   nn_layers.py
+|   |   |   __init__.py
+|   |   |   
+|   |   \---__pycache__
+|   |           hnn.cpython-310.pyc
+|   |           nn_layers.cpython-310.pyc
+|   |           __init__.cpython-310.pyc
+|   |           
+|   +---training
+|   |   |   evaluate_hnn.py
+|   |   |   test_leapfrog_rollout.py
+|   |   |   train_hnn.py
+|   |   |   __init__.py
+|   |   |   
+|   |   \---__pycache__
+|   |           train_hnn.cpython-310.pyc
+|   |           __init__.cpython-310.pyc
+|   |           
+|   +---utilities
+|   |       integration.py
+|   |       metrics.py
+|   |       plotting.py
+|   |       __init__.py
+|   |       
+|   \---__pycache__
+|           __init__.cpython-310.pyc
+|           
++---notebooks
+|       hnn_evaluation.ipynb
+|       hnn_rk45_vs_hnn_leapfrog.ipynb
+|       
+\---sim_rl
+    |   __init__.py
+    |   
+    +---cr3bp
+    |   |   constants.py
+    |   |   env_cr3bp_station_keeping.py
+    |   |   scenarios.py
+    |   |   __init__.py
+    |   |   
+    |   +---N_Body
+    |   |   |   nbody_lib.py
+    |   |   |   __init__.py
+    |   |   |   
+    |   |   \---__pycache__
+    |   |           nbody_lib.cpython-310.pyc
+    |   |           __init__.cpython-310.pyc
+    |   |           
+    |   \---__pycache__
+    |           constants.cpython-310.pyc
+    |           env_cr3bp_station_keeping.cpython-310.pyc
+    |           scenarios.cpython-310.pyc
+    |           __init__.cpython-310.pyc
+    |           
+    +---czml
+    |   |   export_station_keeping_czml.py
+    |   |   Gateway_Core.glb
+    |   |   index.html
+    |   |   station_keeping_mission.czml
+    |   |   __init__.py
+    |   |   
+    |   \---__pycache__
+    |           export_station_keeping_czml.cpython-310.pyc
+    |           __init__.cpython-310.pyc
+    |           
+    +---training
+    |   |   finalize_after_manual_stop.py
+    |   |   train_poc.py
+    |   |   __init__.py
+    |   |   
+    |   +---runs
+    |   |   \---earth-moon-L1-3D
+    |   |       |   latest_run.txt
+    |   |       |   
+    |   |       +---run_20251120_151729
+    |   |       |   +---config
+    |   |       |   |       run_config.json
+    |   |       |   |       
+    |   |       |   +---logs
+    |   |       |   |   |   evaluations.npz
+    |   |       |   |   |   eval_monitor.csv
+    |   |       |   |   |   eval_rewards.csv
+    |   |       |   |   |   
+    |   |       |   |   \---tb
+    |   |       |   |       \---PPO_1
+    |   |       |   |               events.out.tfevents.1763648250.Hozan.35084.0
+    |   |       |   |               
+    |   |       |   +---models
+    |   |       |   |       best_model.zip
+    |   |       |   |       checkpoint_1000000_steps.zip
+    |   |       |   |       checkpoint_100000_steps.zip
+    |   |       |   |       checkpoint_1100000_steps.zip
+    |   |       |   |       checkpoint_1200000_steps.zip
+    |   |       |   |       checkpoint_1300000_steps.zip
+    |   |       |   |       checkpoint_1400000_steps.zip
+    |   |       |   |       checkpoint_1500000_steps.zip
+    |   |       |   |       checkpoint_1600000_steps.zip
+    |   |       |   |       checkpoint_1700000_steps.zip
+    |   |       |   |       checkpoint_1800000_steps.zip
+    |   |       |   |       checkpoint_1900000_steps.zip
+    |   |       |   |       checkpoint_2000000_steps.zip
+    |   |       |   |       checkpoint_200000_steps.zip
+    |   |       |   |       checkpoint_2100000_steps.zip
+    |   |       |   |       checkpoint_2200000_steps.zip
+    |   |       |   |       checkpoint_2300000_steps.zip
+    |   |       |   |       checkpoint_2400000_steps.zip
+    |   |       |   |       checkpoint_2500000_steps.zip
+    |   |       |   |       checkpoint_2600000_steps.zip
+    |   |       |   |       checkpoint_2700000_steps.zip
+    |   |       |   |       checkpoint_2800000_steps.zip
+    |   |       |   |       checkpoint_2900000_steps.zip
+    |   |       |   |       checkpoint_3000000_steps.zip
+    |   |       |   |       checkpoint_300000_steps.zip
+    |   |       |   |       checkpoint_3100000_steps.zip
+    |   |       |   |       checkpoint_3200000_steps.zip
+    |   |       |   |       checkpoint_3300000_steps.zip
+    |   |       |   |       checkpoint_3400000_steps.zip
+    |   |       |   |       checkpoint_3500000_steps.zip
+    |   |       |   |       checkpoint_3600000_steps.zip
+    |   |       |   |       checkpoint_3700000_steps.zip
+    |   |       |   |       checkpoint_3800000_steps.zip
+    |   |       |   |       checkpoint_3900000_steps.zip
+    |   |       |   |       checkpoint_4000000_steps.zip
+    |   |       |   |       checkpoint_400000_steps.zip
+    |   |       |   |       checkpoint_4100000_steps.zip
+    |   |       |   |       checkpoint_4200000_steps.zip
+    |   |       |   |       checkpoint_4300000_steps.zip
+    |   |       |   |       checkpoint_4400000_steps.zip
+    |   |       |   |       checkpoint_4500000_steps.zip
+    |   |       |   |       checkpoint_4600000_steps.zip
+    |   |       |   |       checkpoint_4700000_steps.zip
+    |   |       |   |       checkpoint_4800000_steps.zip
+    |   |       |   |       checkpoint_4900000_steps.zip
+    |   |       |   |       checkpoint_5000000_steps.zip
+    |   |       |   |       checkpoint_500000_steps.zip
+    |   |       |   |       checkpoint_5100000_steps.zip
+    |   |       |   |       checkpoint_5200000_steps.zip
+    |   |       |   |       checkpoint_5300000_steps.zip
+    |   |       |   |       checkpoint_5400000_steps.zip
+    |   |       |   |       checkpoint_5500000_steps.zip
+    |   |       |   |       checkpoint_5600000_steps.zip
+    |   |       |   |       checkpoint_5700000_steps.zip
+    |   |       |   |       checkpoint_5800000_steps.zip
+    |   |       |   |       checkpoint_5900000_steps.zip
+    |   |       |   |       checkpoint_6000000_steps.zip
+    |   |       |   |       checkpoint_600000_steps.zip
+    |   |       |   |       checkpoint_6100000_steps.zip
+    |   |       |   |       checkpoint_6200000_steps.zip
+    |   |       |   |       checkpoint_6300000_steps.zip
+    |   |       |   |       checkpoint_6400000_steps.zip
+    |   |       |   |       checkpoint_6500000_steps.zip
+    |   |       |   |       checkpoint_6600000_steps.zip
+    |   |       |   |       checkpoint_6700000_steps.zip
+    |   |       |   |       checkpoint_6800000_steps.zip
+    |   |       |   |       checkpoint_6900000_steps.zip
+    |   |       |   |       checkpoint_7000000_steps.zip
+    |   |       |   |       checkpoint_700000_steps.zip
+    |   |       |   |       checkpoint_7100000_steps.zip
+    |   |       |   |       checkpoint_7200000_steps.zip
+    |   |       |   |       checkpoint_7300000_steps.zip
+    |   |       |   |       checkpoint_7400000_steps.zip
+    |   |       |   |       checkpoint_7500000_steps.zip
+    |   |       |   |       checkpoint_7600000_steps.zip
+    |   |       |   |       checkpoint_7700000_steps.zip
+    |   |       |   |       checkpoint_7800000_steps.zip
+    |   |       |   |       checkpoint_7900000_steps.zip
+    |   |       |   |       checkpoint_8000000_steps.zip
+    |   |       |   |       checkpoint_800000_steps.zip
+    |   |       |   |       checkpoint_900000_steps.zip
+    |   |       |   |       ppo_last.zip
+    |   |       |   |       
+    |   |       |   \---rollouts
+    |   |       |           final_rollout_after_manual_stop.csv
+    |   |       |           sim_001_steps_2048.csv
+    |   |       |           sim_002_steps_4096.csv
+    |   |       |           sim_003_steps_6144.csv
+    |   |       |           sim_004_steps_8192.csv
+    |   |       |           sim_005_steps_10240.csv
+    |   |       |           sim_006_steps_12288.csv
+    |   |       |           sim_007_steps_14336.csv
+    |   |       |           sim_008_steps_16384.csv
+    |   |       |           sim_009_steps_18432.csv
+    |   |       |           sim_010_steps_20480.csv
+    |   |       |           sim_011_steps_22528.csv
+    |   |       |           sim_012_steps_24576.csv
+    |   |       |           sim_013_steps_26624.csv
+    |   |       |           sim_014_steps_28672.csv
+    |   |       |           sim_015_steps_30720.csv
+    |   |       |           sim_016_steps_32768.csv
+    |   |       |           sim_017_steps_34816.csv
+    |   |       |           sim_018_steps_36864.csv
+    |   |       |           sim_019_steps_38912.csv
+    |   |       |           sim_020_steps_40960.csv
+    |   |       |           sim_032_steps_65536.csv
+    |   |       |           sim_064_steps_131072.csv
+    |   |       |           
+    |   |       \---run_20251121_144420
+    |   |           +---config
+    |   |           |       run_config.json
+    |   |           |       
+    |   |           +---logs
+    |   |           |   |   evaluations.npz
+    |   |           |   |   eval_monitor.csv
+    |   |           |   |   eval_rewards.csv
+    |   |           |   |   
+    |   |           |   \---tb
+    |   |           |       \---PPO_1
+    |   |           |               events.out.tfevents.1763732661.Hozan.25424.0
+    |   |           |               
+    |   |           +---models
+    |   |           |       best_model.zip
+    |   |           |       checkpoint_1000000_steps.zip
+    |   |           |       checkpoint_100000_steps.zip
+    |   |           |       checkpoint_1100000_steps.zip
+    |   |           |       checkpoint_1200000_steps.zip
+    |   |           |       checkpoint_1300000_steps.zip
+    |   |           |       checkpoint_1400000_steps.zip
+    |   |           |       checkpoint_1500000_steps.zip
+    |   |           |       checkpoint_1600000_steps.zip
+    |   |           |       checkpoint_1700000_steps.zip
+    |   |           |       checkpoint_1800000_steps.zip
+    |   |           |       checkpoint_1900000_steps.zip
+    |   |           |       checkpoint_2000000_steps.zip
+    |   |           |       checkpoint_200000_steps.zip
+    |   |           |       checkpoint_300000_steps.zip
+    |   |           |       checkpoint_400000_steps.zip
+    |   |           |       checkpoint_500000_steps.zip
+    |   |           |       checkpoint_600000_steps.zip
+    |   |           |       checkpoint_700000_steps.zip
+    |   |           |       checkpoint_800000_steps.zip
+    |   |           |       checkpoint_900000_steps.zip
+    |   |           |       ppo_last.zip
+    |   |           |       
+    |   |           \---rollouts
+    |   |                   final_rollout_after_manual_stop.csv
+    |   |                   sim_001_steps_2048.csv
+    |   |                   sim_002_steps_4096.csv
+    |   |                   sim_003_steps_6144.csv
+    |   |                   sim_004_steps_8192.csv
+    |   |                   sim_005_steps_10240.csv
+    |   |                   sim_006_steps_12288.csv
+    |   |                   sim_007_steps_14336.csv
+    |   |                   sim_008_steps_16384.csv
+    |   |                   sim_009_steps_18432.csv
+    |   |                   sim_010_steps_20480.csv
+    |   |                   sim_011_steps_22528.csv
+    |   |                   sim_012_steps_24576.csv
+    |   |                   sim_013_steps_26624.csv
+    |   |                   sim_014_steps_28672.csv
+    |   |                   sim_015_steps_30720.csv
+    |   |                   sim_016_steps_32768.csv
+    |   |                   sim_017_steps_34816.csv
+    |   |                   sim_018_steps_36864.csv
+    |   |                   sim_019_steps_38912.csv
+    |   |                   sim_020_steps_40960.csv
+    |   |                   sim_032_steps_65536.csv
+    |   |                   sim_064_steps_131072.csv
+    |   |                   
+    |   \---__pycache__
+    |           finalize_after_manual_stop.cpython-310.pyc
+    |           train_poc.cpython-310.pyc
+    |           __init__.cpython-310.pyc
+    |           
+    \---__pycache__
+            __init__.cpython-310.pyc
+            

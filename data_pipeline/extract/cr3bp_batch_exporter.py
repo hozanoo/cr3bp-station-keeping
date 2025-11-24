@@ -51,6 +51,8 @@ def simulate_single_run(
         pos = rel_pos + env.target
         vel = rel_vel
 
+        acc = info.get("acc", np.zeros(dim, dtype=float))
+
         t = k * dt
 
         row = {
@@ -61,6 +63,9 @@ def simulate_single_run(
             "vx": float(vel[0]),
             "vy": float(vel[1]),
             "vz": float(vel[2]) if dim == 3 else 0.0,
+            "ax": float(acc[0]),
+            "ay": float(acc[1]),
+            "az": float(acc[2]) if dim == 3 else 0.0,
         }
 
         records.append(row)

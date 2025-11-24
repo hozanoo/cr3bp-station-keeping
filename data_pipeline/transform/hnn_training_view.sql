@@ -17,7 +17,10 @@ SELECT
     ts.z,
     ts.vx,
     ts.vy,
-    ts.vz
+    ts.vz,
+    ts.ax,
+    ts.ay,
+    ts.az
 
 FROM cr3bp_trajectory_sample AS ts
 JOIN cr3bp_simulation_run AS run

@@ -316,6 +316,10 @@ class Cr3bpStationKeepingEnv(gym.Env):
         pos = final[: self.dim]
         vel = final[self.dim : 2 * self.dim]
 
+        # Acceleration from the CR3BP ODE at the final state
+        rhs = self.system.differential_equation(sol.t[-1], final)
+        acc = rhs[self.dim : 2 * self.dim]
+
         sat.position = pos
         sat.velocity = vel
 
@@ -385,7 +389,8 @@ class Cr3bpStationKeepingEnv(gym.Env):
             "far_penalty": far_penalty,
             "crash_primary1": crash_p1,
             "crash_primary2": crash_p2,
-            "dv": dv,  # useful for later delta-v logging
+            "dv": dv,
+            "acc": acc,
         }
 
         return obs, reward, terminated, truncated, info

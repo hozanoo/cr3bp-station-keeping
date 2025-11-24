@@ -1,39 +1,68 @@
+-- -------------------------------------------------------------------------
+-- CR3BP schema initialization
+--
+-- This script defines the core tables used by the CR3BP project:
+--   - cr3bp_system
+--   - cr3bp_lagrange_point
+--   - cr3bp_simulation_run
+--   - cr3bp_trajectory_sample
+--
+-- The definitions are aligned with data_pipeline.load.loader_postgres.ensure_schema.
+-- -------------------------------------------------------------------------
+
+-- =========================
+-- System and configuration
+-- =========================
+
 CREATE TABLE IF NOT EXISTS cr3bp_system (
-    system_id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    mu REAL NOT NULL
+    system_id     SERIAL PRIMARY KEY,
+    name          TEXT UNIQUE NOT NULL,
+    frame_default TEXT NOT NULL CHECK (
+        frame_default IN ('rotating', 'inertial', 'barycentric')
+    )
 );
 
-CREATE TABLE IF NOT EXISTS cr3bp_frame (
-    frame_id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
+CREATE TABLE IF NOT EXISTS cr3bp_lagrange_point (
+    lagrange_point_id SERIAL PRIMARY KEY,
+    system_id         INT  NOT NULL REFERENCES cr3bp_system(system_id),
+    name              TEXT NOT NULL,
+    UNIQUE (system_id, name)
 );
 
-CREATE TABLE IF NOT EXISTS cr3bp_episode (
-    episode_id BIGSERIAL PRIMARY KEY,
-    system_id INTEGER REFERENCES cr3bp_system(system_id),
-    frame_id INTEGER REFERENCES cr3bp_frame(frame_id),
-    dim INTEGER NOT NULL,
-    start_state REAL[] NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+-- =========================
+-- Simulation runs
+-- =========================
+
+CREATE TABLE IF NOT EXISTS cr3bp_simulation_run (
+    run_id           UUID PRIMARY KEY,
+    system_id        INT  NOT NULL REFERENCES cr3bp_system(system_id),
+    lagrange_point_id INT NOT NULL REFERENCES cr3bp_lagrange_point(lagrange_point_id),
+    scenario_name    TEXT NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL,
+    source_file      TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS cr3bp_step (
-    step_id BIGSERIAL PRIMARY KEY,
-    episode_id BIGINT REFERENCES cr3bp_episode(episode_id),
-    t REAL NOT NULL,
-    state REAL[] NOT NULL,
-    dv REAL[] NOT NULL
-);
+-- =========================
+-- Trajectory samples
+-- =========================
 
 CREATE TABLE IF NOT EXISTS cr3bp_trajectory_sample (
-    sample_id BIGSERIAL PRIMARY KEY,
-    episode_id BIGINT REFERENCES cr3bp_episode(episode_id),
-    t REAL NOT NULL,
-    x REAL NOT NULL,
-    y REAL NOT NULL,
-    z REAL NOT NULL,
-    dx REAL NOT NULL,
-    dy REAL NOT NULL,
-    dz REAL NOT NULL
+    run_id UUID NOT NULL REFERENCES cr3bp_simulation_run(run_id) ON DELETE CASCADE,
+    step   INT  NOT NULL,
+
+    t  DOUBLE PRECISION NOT NULL,
+
+    x  DOUBLE PRECISION NOT NULL,
+    y  DOUBLE PRECISION NOT NULL,
+    z  DOUBLE PRECISION NOT NULL,
+
+    vx DOUBLE PRECISION NOT NULL,
+    vy DOUBLE PRECISION NOT NULL,
+    vz DOUBLE PRECISION NOT NULL,
+
+    ax DOUBLE PRECISION NOT NULL,
+    ay DOUBLE PRECISION NOT NULL,
+    az DOUBLE PRECISION NOT NULL,
+
+    PRIMARY KEY (run_id, step)
 );

@@ -23,7 +23,7 @@ import torch
 from torch.utils.data import Dataset
 
 from data_pipeline.load.db_connection import DbConfig, db_cursor
-from hnn_models.dataloader.preprocessing import central_difference, compute_standardization_stats
+from hnn_models.dataloader.preprocessing import compute_standardization_stats
 
 
 @dataclass
@@ -89,7 +89,8 @@ class HnnTrainingDataset(Dataset):
                 dim,
                 t,
                 x, y, z,
-                vx, vy, vz
+                vx, vy, vz,
+                ax, ay, az
             FROM hnn_training_view
         """
 
@@ -121,7 +122,20 @@ class HnnTrainingDataset(Dataset):
         if not rows:
             raise RuntimeError("No rows returned from hnn_training_view for the given configuration.")
 
-        columns = ["episode_id", "dim", "t", "x", "y", "z", "vx", "vy", "vz"]
+        columns = [
+            "episode_id",
+            "dim",
+            "t",
+            "x",
+            "y",
+            "z",
+            "vx",
+            "vy",
+            "vz",
+            "ax",
+            "ay",
+            "az",
+        ]
         df = pd.DataFrame(rows, columns=columns)
 
         q_list: List[np.ndarray] = []
@@ -132,16 +146,14 @@ class HnnTrainingDataset(Dataset):
         for episode_id, group in df.groupby("episode_id", sort=True):
             group = group.sort_values("t")
 
-            times = group["t"].to_numpy(dtype=np.float64)
-
             if self.config.dim == 3:
                 pos = group[["x", "y", "z"]].to_numpy(dtype=np.float64)
                 vel = group[["vx", "vy", "vz"]].to_numpy(dtype=np.float64)
+                acc = group[["ax", "ay", "az"]].to_numpy(dtype=np.float64)
             else:
                 pos = group[["x", "y"]].to_numpy(dtype=np.float64)
                 vel = group[["vx", "vy"]].to_numpy(dtype=np.float64)
-
-            acc = central_difference(vel, times)
+                acc = group[["ax", "ay"]].to_numpy(dtype=np.float64)
 
             q_list.append(pos)
             p_list.append(vel)
