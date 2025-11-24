@@ -1,45 +1,79 @@
-# Byte-compiled / optimized / DLL files
+# ------------------------------------------------------------
+# Python Build / Bytecode
+# ------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Virtual environments
+# ------------------------------------------------------------
+# Virtual Environments
+# ------------------------------------------------------------
 .venv/
 venv/
 env/
 station_keeping/
 
-# Jupyter
+# ------------------------------------------------------------
+# Jupyter Notebooks (experimental analysis)
+# ------------------------------------------------------------
+notebooks/
 .ipynb_checkpoints/
+*.ipynb_checkpoints/
 
-# Data
+# ------------------------------------------------------------
+# Data (raw + processed)
+# ------------------------------------------------------------
 data/raw/
 data/processed/
 
-# RL runs, models, logs
+# SIM EXPORTS (Airflow + Sim-RL)
+data_pipeline/raw_exports/*
+!data_pipeline/raw_exports/.gitkeep
+
+# ------------------------------------------------------------
+# ML / RL runs & logs (Stable Baselines, TensorBoard, PPO)
+# ------------------------------------------------------------
 runs/
 **/logs/
 **/models/
 
-# Airflow
+# ------------------------------------------------------------
+# HNN Checkpoints (optional: untrack large model files)
+hnn_models/checkpoints/*
+!hnn_models/checkpoints/.gitkeep
+
+# ------------------------------------------------------------
+# Airflow related
+# ------------------------------------------------------------
 airflow_settings.env
 airflow_logs/
 **/airflow/logs/
 
-# VSCode / IDE
+# Environment files
+*.env
+deploy/.env
+
+# ------------------------------------------------------------
+# Cesium 3D Models (large binary files)
+# ------------------------------------------------------------
+sim_rl/czml/*.glb
+
+# ------------------------------------------------------------
+# IDE / Editor
+# ------------------------------------------------------------
 .vscode/
 .idea/
 
-# OS files
+# ------------------------------------------------------------
+# OS System Files
+# ------------------------------------------------------------
 .DS_Store
 Thumbs.db
 
-# Large Cesium models (not tracked)
-sim_rl/czml/*.glb
-
-
-data_pipeline/raw_exports/*
-!data_pipeline/raw_exports/.gitkeep
-
-deploy/.env
-*.env
+# ------------------------------------------------------------
+# Build / Packaging Artifacts
+# ------------------------------------------------------------
+build/
+dist/
+*.egg-info/
+*.egg
