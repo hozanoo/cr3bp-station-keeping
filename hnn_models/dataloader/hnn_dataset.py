@@ -2,14 +2,15 @@
 """
 PyTorch Dataset for CR3BP HNN training.
 
-The dataset reads samples from the PostgreSQL view ``hnn_training_view``,
-groups them by episode, and computes accelerations via central differences.
+The dataset reads samples from the PostgreSQL view ``hnn_training_view``
+and groups them by episode. Positions, velocities and accelerations are
+taken directly from the database.
 
 Each item corresponds to a single time step and contains:
 - q      : position vector (dim,)
 - p      : velocity vector (dim,)
 - dq_dt  : ground-truth time derivative of q  (equals velocity)
-- dp_dt  : ground-truth time derivative of p  (estimated acceleration)
+- dp_dt  : ground-truth time derivative of p  (acceleration)
 """
 
 from __future__ import annotations
@@ -80,7 +81,6 @@ class HnnTrainingDataset(Dataset):
     def _load_from_db(
         self,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        # IMPORTANT: use prefix_env, not 'prefix'
         cfg = DbConfig.from_env(prefix_env=self.config.db_env_prefix)
 
         base_query = """

@@ -50,12 +50,19 @@ CREATE TABLE IF NOT EXISTS cr3bp_lagrange_point (
 );
 
 CREATE TABLE IF NOT EXISTS cr3bp_simulation_run (
-    run_id            UUID PRIMARY KEY,
-    system_id         INT NOT NULL REFERENCES cr3bp_system(system_id),
-    lagrange_point_id INT NOT NULL REFERENCES cr3bp_lagrange_point(lagrange_point_id),
-    scenario_name     TEXT NOT NULL,
-    created_at        TIMESTAMPTZ NOT NULL,
-    source_file       TEXT NOT NULL
+    run_id                 UUID PRIMARY KEY,
+    system_id              INT NOT NULL REFERENCES cr3bp_system(system_id),
+    lagrange_point_id      INT NOT NULL REFERENCES cr3bp_lagrange_point(lagrange_point_id),
+    scenario_name          TEXT NOT NULL,
+    created_at             TIMESTAMPTZ NOT NULL,
+    source_file            TEXT NOT NULL,
+
+    -- Metadata for analysis and filtering
+    integrator             TEXT,
+    step_size              DOUBLE PRECISION,
+    terminated             BOOLEAN NOT NULL DEFAULT FALSE,
+    termination_reason     TEXT,
+    initial_condition_type TEXT
 );
 
 CREATE TABLE IF NOT EXISTS cr3bp_trajectory_sample (

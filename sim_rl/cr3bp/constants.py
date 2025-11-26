@@ -24,7 +24,7 @@ MU_EARTH_SUN: float = 3.00348959632e-6
 DT: float = 0.01
 
 #: Maximum number of environment steps per episode.
-MAX_STEPS: int = 600
+MAX_STEPS: int = 6000
 
 
 # =====================================================================
