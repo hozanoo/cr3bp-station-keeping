@@ -29,6 +29,7 @@ $$;
 
 -- Switch to target database
 \connect cr3bp_db;
+SET search_path TO cr3bp, public;
 
 -- ===================================================================
 -- Core CR3BP tables (aligned with loader_postgres.ensure_schema)

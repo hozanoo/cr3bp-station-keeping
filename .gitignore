@@ -19,6 +19,7 @@ station_keeping/
 notebooks/
 .ipynb_checkpoints/
 *.ipynb_checkpoints/
+sim_rl/training/*.ipynb
 
 # ------------------------------------------------------------
 # Data (raw + processed)

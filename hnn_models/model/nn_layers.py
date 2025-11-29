@@ -1,60 +1,79 @@
 # hnn_models/model/nn_layers.py
 """
-Neural network building blocks for HNN models.
+Utility functions for constructing neural network components.
+Supports sine, tanh, relu activations.
 """
 
 from __future__ import annotations
 
-from typing import Iterable, List
+from typing import Iterable, Tuple
 
 import torch
 from torch import nn
 
 
+def get_activation(name: str) -> nn.Module:
+    """
+    Return an activation module given its name.
+
+    Supported:
+    - "tanh"
+    - "relu"
+    - "sine"   (SIREN-style)
+    """
+    name = name.lower()
+
+    if name == "tanh":
+        return nn.Tanh()
+    if name == "relu":
+        return nn.ReLU()
+    if name == "sine":
+        # SIREN-like sine activation
+        class Sine(nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return torch.sin(x)
+
+        return Sine()
+
+    raise ValueError(f"Unsupported activation function: {name}")
+
+
 def make_mlp(
-    input_dim: int,
-    hidden_dims: Iterable[int],
-    output_dim: int,
+    in_dim: int,
+    out_dim: int,
+    hidden_dims: Iterable[int] | Tuple[int, ...],
     activation: str = "tanh",
 ) -> nn.Sequential:
     """
-    Construct a simple fully-connected MLP.
+    Build a fully-connected feed-forward neural network (MLP).
 
     Parameters
     ----------
-    input_dim:
-        Input feature dimension.
+    in_dim:
+        Number of input features.
+    out_dim:
+        Number of output features.
     hidden_dims:
-        Iterable of hidden layer sizes.
-    output_dim:
-        Output dimension.
+        Sizes of hidden layers.
     activation:
-        Name of activation function ("tanh", "relu", "gelu").
+        Activation function to use in all hidden layers.
 
     Returns
     -------
-    model:
-        ``nn.Sequential`` implementing the MLP.
+    nn.Sequential
+        A feed-forward network: Linear + Activation blocks.
     """
-    hidden_dims = list(hidden_dims)
-    layers: List[nn.Module] = []
+    layers = []
+    current_dim = in_dim
 
-    act_cls: nn.Module
-    if activation == "tanh":
-        act_cls = nn.Tanh
-    elif activation == "relu":
-        act_cls = nn.ReLU
-    elif activation == "gelu":
-        act_cls = nn.GELU
-    else:
-        raise ValueError(f"Unsupported activation: {activation!r}")
+    act = get_activation(activation)
 
-    prev_dim = input_dim
     for h in hidden_dims:
-        layers.append(nn.Linear(prev_dim, h))
-        layers.append(act_cls())
-        prev_dim = h
+        layers.append(nn.Linear(current_dim, h))
+        layers.append(act)
+        current_dim = h
 
-    layers.append(nn.Linear(prev_dim, output_dim))
+    # Final linear layer (no activation)
+    layers.append(nn.Linear(current_dim, out_dim))
 
     return nn.Sequential(*layers)

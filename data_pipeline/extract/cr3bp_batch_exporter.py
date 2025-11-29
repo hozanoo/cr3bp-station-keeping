@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -17,11 +17,11 @@ EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
 
 def simulate_single_run(
     scenario: ScenarioConfig,
-    steps: int = 3000,
+    steps: int = 300,
     seed: int | None = None,
     ic_type: str = "l1_cloud",
-    escape_radius: float = 3.0,
-) -> pd.DataFrame:
+    escape_radius: float = 0.5,
+) -> Tuple[pd.DataFrame, str]:
     """
     Run a physics-only CR3BP simulation without control actions.
 
@@ -30,6 +30,14 @@ def simulate_single_run(
     environment truncation, large excursions from the target region
     or non-finite states. The final crash or escape frame is not
     stored in the returned trajectory.
+
+    Returns
+    -------
+    trajectory : pandas.DataFrame
+        Columns: t, x, y, z, vx, vy, vz, ax, ay, az
+    termination_reason : str
+        One of: "max_steps", "escape", "crash_primary1",
+        "crash_primary2", "nan", "truncated".
     """
     env = Cr3bpStationKeepingEnv(
         scenario=scenario,
@@ -44,7 +52,6 @@ def simulate_single_run(
 
     records: list[dict[str, float]] = []
 
-    # t = 0 initial state
     sat = env.system.bodies[0]
     initial_row = {
         "t": 0.0,
@@ -54,14 +61,14 @@ def simulate_single_run(
         "vx": float(sat.velocity[0]),
         "vy": float(sat.velocity[1]),
         "vz": float(sat.velocity[2]) if dim == 3 else 0.0,
-        # Initial acceleration is set to zero as a harmless approximation
         "ax": 0.0,
         "ay": 0.0,
         "az": 0.0,
     }
     records.append(initial_row)
 
-    # Main integration loop
+    termination_reason = "max_steps"
+
     for k in range(1, steps + 1):
         action = np.zeros(dim, dtype=np.float32)
 
@@ -73,18 +80,38 @@ def simulate_single_run(
         radius = float(np.linalg.norm(rel_pos))
         escape = radius > escape_radius
 
-        # Do not store crash or escape frames
-        if terminated or escape:
-            break
-
         pos = rel_pos + env.target
         vel = rel_vel
         acc = info.get("acc", np.zeros(dim, dtype=float))
 
-        t = k * dt
+        non_finite_state = (
+            not np.isfinite(pos).all()
+            or not np.isfinite(vel).all()
+            or not np.isfinite(acc).all()
+        )
+
+        crash_p1 = bool(info.get("crash_primary1", False))
+        crash_p2 = bool(info.get("crash_primary2", False))
+
+        # Determine termination reason BEFORE appending a broken state
+        if non_finite_state:
+            termination_reason = "nan"
+            break
+
+        if crash_p1:
+            termination_reason = "crash_primary1"
+            break
+
+        if crash_p2:
+            termination_reason = "crash_primary2"
+            break
+
+        if escape:
+            termination_reason = "escape"
+            break
 
         row = {
-            "t": float(t),
+            "t": float(k * dt),
             "x": float(pos[0]),
             "y": float(pos[1]),
             "z": float(pos[2]) if dim == 3 else 0.0,
@@ -97,33 +124,24 @@ def simulate_single_run(
         }
         records.append(row)
 
-        # Numeric robustness: discard broken last frame
-        non_finite_state = (
-            not np.isfinite(pos).all()
-            or not np.isfinite(vel).all()
-            or not np.isfinite(acc).all()
-        )
-        if non_finite_state:
-            records.pop()
-            break
-
-        if truncated:
+        if terminated or truncated:
+            termination_reason = "max_steps" if k >= steps else "truncated"
             break
 
     env.close()
 
-    # Discard trajectories that are too short to be useful
     if len(records) < 2:
-        return pd.DataFrame()
+        return pd.DataFrame(), termination_reason
 
-    return pd.DataFrame(records)
+    df = pd.DataFrame(records)
+    return df, termination_reason
 
 
 def export_batch(
     scenario_name: str = "earth-moon-L1-3D",
-    n_simulations: int = 300,
-    steps_per_sim: int = 6000,
-    halo_fraction: float = 0.3,
+    n_simulations: int = 3000,
+    steps_per_sim: int = 300,
+    halo_fraction: float = 0.5,
 ) -> List[Path]:
     """
     Generate multiple CR3BP trajectories and save them to CSV.
@@ -131,6 +149,13 @@ def export_batch(
     A fraction of the simulations uses halo-like initial conditions for
     additional 3D variation; the remaining share uses L1-cloud initial
     conditions.
+
+    The termination_reason is encoded in the filename, so that the
+    database loader can reconstruct metadata without re-simulating.
+    Example filename:
+
+        traj_012_l1_cloud_max_steps.csv
+        traj_013_halo_seed_escape.csv
     """
     if scenario_name not in SCENARIOS:
         raise KeyError(f"Scenario {scenario_name!r} not defined.")
@@ -151,18 +176,20 @@ def export_batch(
         seed = int(rng.integers(0, 2**32 - 1))
 
         ic_type = "l1_cloud"
-        if scenario.dim == 3:
-            if rng.random() < halo_fraction:
-                ic_type = "halo_seed"
+        if scenario.dim == 3 and rng.random() < halo_fraction:
+            ic_type = "halo_seed"
 
-        df = simulate_single_run(
+        df, termination_reason = simulate_single_run(
             scenario=scenario,
             steps=steps_per_sim,
             seed=seed,
             ic_type=ic_type,
         )
 
-        filename = f"traj_{i:03d}_{ic_type}.csv"
+        if df.empty:
+            continue
+
+        filename = f"traj_{i:03d}_{ic_type}_{termination_reason}.csv"
         path = export_dir / filename
         df.to_csv(path, index=False)
 
