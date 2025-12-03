@@ -24,7 +24,7 @@ MU_EARTH_SUN: float = 3.00348959632e-6
 DT: float = 0.01
 
 #: Maximum number of environment steps per episode.
-MAX_STEPS: int = 6000
+MAX_STEPS: int = 1200
 
 
 # =====================================================================
@@ -151,13 +151,13 @@ W_POS: float = 1.0
 W_VEL: float = 0.1
 
 #: Control penalty (norm of delta-v).
-W_CTRL: float = 0.01
+W_CTRL: float = 0.5
 
 #: Deadband radius around the L1 point.
-L1_DEADBAND: float = 0.15
+L1_DEADBAND: float = 0.0
 
 #: Soft limit for "far away" from the target.
-L1_FAR_LIMIT: float = 0.5
+L1_FAR_LIMIT: float = 0.25
 
 
 # =====================================================================
@@ -171,4 +171,35 @@ CRASH_RADIUS_PRIMARY1: float = 0.03
 CRASH_RADIUS_PRIMARY2: float = 0.02
 
 #: Hard penalty applied on crash.
-CRASH_PENALTY: float = 200.0
+CRASH_PENALTY: float = 500.0
+
+
+# =====================================================================
+# Halo-Enforcing (Anti-Planar) Constants
+# =====================================================================
+
+#: Threshold for Z-position to be considered "in-plane".
+PLANAR_Z_THRESHOLD: float = 0.02
+
+#: Threshold for Z-velocity to be considered "stationary vertically".
+PLANAR_VZ_THRESHOLD: float = 0.05
+
+#: Penalty applied when both planar conditions are met.
+W_PLANAR: float = 5.0
+
+# =====================================================================
+# Alternate reward weights for reference-orbit tracking (Phase 2)
+# =====================================================================
+
+#: Position penalty when tracking a reference Halo orbit.
+W_POS_REF: float = 20.0
+
+#: Velocity penalty when tracking a reference orbit.
+# (kept identical to W_VEL for now, but split out for clarity)
+W_VEL_REF: float = 0.05
+
+#: Control penalty when tracking a reference orbit (discourage hovering).
+W_CTRL_REF: float = 0.08
+
+#: Planar penalty in reference-orbit mode (disabled, Halo pulls us out of plane).
+W_PLANAR_REF: float = 0.0

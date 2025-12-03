@@ -49,8 +49,8 @@ SCENARIOS: dict[str, ScenarioConfig] = {
         lagrange_point="L1",
         dim=3,
         action_mode="full_3d",
-        pos_noise=1e-3,
-        vel_noise=1e-3,
+        pos_noise=0.0,
+        vel_noise=0.0,
     ),
 
     # Example for a possible future 2D scenario:

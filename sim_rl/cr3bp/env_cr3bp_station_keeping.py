@@ -6,11 +6,14 @@ Circular Restricted Three Body Problem (CR3BP) near a selected
 Lagrange point (for example Earth–Moon L1) and exposes it as a
 continuous-control RL task.
 
-The state consists of position and velocity relative to the chosen
-Lagrange point, and the action is a delta-v command.
+The state consists of position and velocity relative to the current
+target (either a fixed Lagrange point or a moving reference orbit),
+and the action is a delta-v command.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 import gymnasium as gym
@@ -31,7 +34,15 @@ from sim_rl.cr3bp.constants import (
     CRASH_RADIUS_PRIMARY1,
     CRASH_RADIUS_PRIMARY2,
     CRASH_PENALTY,
+    PLANAR_Z_THRESHOLD,
+    PLANAR_VZ_THRESHOLD,
+    W_PLANAR,
+    W_POS_REF,
+    W_VEL_REF,
+    W_CTRL_REF,
+    W_PLANAR_REF,
 )
+from sim_rl.cr3bp.reference_orbits.halo_generator import HaloOrbitConfig, generate_halo_orbit
 from sim_rl.cr3bp.scenarios import ScenarioConfig
 
 
@@ -44,14 +55,16 @@ class Cr3bpStationKeepingEnv(gym.Env):
 
     Frame
     -----
-    Rotating synodic frame with angular velocity :math:`\\omega = 1`.
+    Rotating synodic frame with angular velocity :math:`\omega = 1`.
 
     Observation
     -----------
     Concatenated vector ``[dpos, dvel]`` where:
 
-    * ``dpos`` – position relative to the selected Lagrange point,
-    * ``dvel`` – absolute velocity in the rotating frame.
+    * ``dpos`` – position relative to the selected target
+      (either a Lagrange point or a reference trajectory sample),
+    * ``dvel`` – velocity error relative to the reference orbit in
+      reference-orbit mode, or absolute velocity otherwise.
 
     Action
     ------
@@ -75,6 +88,7 @@ class Cr3bpStationKeepingEnv(gym.Env):
         max_dv: float = 0.005,
         integrator: str = "RK45",
         seed: int | None = None,
+        use_reference_orbit: bool = False,
     ) -> None:
         super().__init__()
 
@@ -92,9 +106,60 @@ class Cr3bpStationKeepingEnv(gym.Env):
 
         target_3d = LAGRANGE_POINTS[self.system_id][self.lagrange_point_id]
         if self.dim == 2:
-            self.target = target_3d[:2].astype(np.float64)
+            self.lagrange_pos = target_3d[:2].astype(np.float64)
         else:
-            self.target = target_3d.astype(np.float64)
+            self.lagrange_pos = target_3d.astype(np.float64)
+
+        self.use_reference_orbit = use_reference_orbit
+        self.halo_ref = None
+        self.halo_len = 0
+        self._halo_index = 0
+        self.vel_ref_current = np.zeros(self.dim, dtype=np.float64)
+
+        if self.use_reference_orbit:
+            halo_dir = Path(__file__).resolve().parent / "reference_orbits" / "data"
+            halo_dir.mkdir(parents=True, exist_ok=True)
+            halo_filename = f"halo_{self.system_id}_{self.lagrange_point_id}.npy"
+            halo_path = halo_dir / halo_filename
+            if halo_path.exists():
+                self.halo_ref = np.load(halo_path)
+            else:
+                cfg = HaloOrbitConfig(
+                    system_id=self.system_id,
+                    lagrange_point=self.lagrange_point_id,
+                    z_amplitude=0.08,
+                    x_offset=-0.04,
+                    periods=2.0,
+                    steps_per_period=2000,
+                    dt=self.dt,
+                )
+                self.halo_ref = generate_halo_orbit(cfg, save_path=halo_path)
+            self.halo_len = self.halo_ref.shape[0]
+
+        if self.use_reference_orbit:
+            self.w_pos = float(W_POS_REF)
+            self.w_vel = float(W_VEL_REF)
+            self.w_ctrl = float(W_CTRL_REF)
+            self.w_planar = float(W_PLANAR_REF)
+        else:
+            self.w_pos = float(W_POS)
+            self.w_vel = float(W_VEL)
+            self.w_ctrl = float(W_CTRL)
+            self.w_planar = float(W_PLANAR)
+
+        if self.use_reference_orbit:
+            self.deadband = 0.0
+        else:
+            self.deadband = float(L1_DEADBAND)
+        self.far_limit = float(L1_FAR_LIMIT)
+
+        if self.use_reference_orbit and self.halo_ref is not None and self.halo_len > 0:
+            ref0 = self.halo_ref[0]
+            self.target = ref0[: self.dim].astype(np.float64)
+            self.vel_ref_current = ref0[self.dim : 2 * self.dim].astype(np.float64)
+        else:
+            self.target = self.lagrange_pos.copy()
+            self.vel_ref_current = np.zeros(self.dim, dtype=np.float64)
 
         if self.action_mode == "planar":
             act_dim = 2
@@ -108,7 +173,7 @@ class Cr3bpStationKeepingEnv(gym.Env):
         self.action_space = spaces.Box(
             low=-1.0,
             high=1.0,
-            shape=(act_dim,),
+            shape=(self.action_dim,),
             dtype=np.float32,
         )
 
@@ -127,27 +192,10 @@ class Cr3bpStationKeepingEnv(gym.Env):
         self.np_random = None
         self.seed(seed)
 
-    # ------------------------------------------------------------------
-    # Helper methods
-    # ------------------------------------------------------------------
-
     def _make_system(self, ic_type: str | None = None) -> NBodySystem:
-        """
-        Construct the underlying NBodySystem for the CR3BP.
-
-        Parameters
-        ----------
-        ic_type:
-            Optional initial-condition type. Supported values:
-            - "l1_cloud" (default): small perturbations around a baseline
-              L1-like state.
-            - "halo_seed": baseline state with a small vertical offset in
-              3D to create halo-like motion.
-        """
         mu = self.mu
 
         primary_masses = [1.0 - mu, mu]
-
         if self.dim == 2:
             primary_positions = [
                 np.array([-mu, 0.0], dtype=float),
@@ -172,18 +220,19 @@ class Cr3bpStationKeepingEnv(gym.Env):
             pos0 = base[:3].copy()
             vel0 = base[3:6].copy()
 
-        # Initial-condition modes
         mode = ic_type or "l1_cloud"
 
         if mode == "halo_seed" and self.dim == 3:
-            # Simple halo-like seed: add a vertical component
-            # based on the existing position noise scale.
             z_amp = self.scenario.pos_noise if self.scenario.pos_noise > 0.0 else 0.01
             pos0[2] += z_amp
-            # Optional: small vertical velocity
             vel0[2] += 0.0
 
-        # Domain randomization for all modes
+        if self.use_reference_orbit and self.halo_ref is not None and self.halo_len > 0:
+            idx = int(self._halo_index)
+            ref = self.halo_ref[idx]
+            pos0 = ref[: self.dim].astype(np.float64)
+            vel0 = ref[self.dim : 2 * self.dim].astype(np.float64)
+
         if self.np_random is not None:
             pos0 += self.np_random.normal(
                 scale=self.scenario.pos_noise,
@@ -201,8 +250,10 @@ class Cr3bpStationKeepingEnv(gym.Env):
             name="sat",
         )
 
+        bodies = [sat]
+
         system = NBodySystem(
-            bodies=[sat],
+            bodies=bodies,
             G=1.0,
             softening_factor=0.0,
             frame="rotating",
@@ -215,54 +266,51 @@ class Cr3bpStationKeepingEnv(gym.Env):
     def _get_obs(self) -> np.ndarray:
         sat = self.system.bodies[0]
         rel_pos = sat.position - self.target
-        rel_vel = sat.velocity
+
+        if self.use_reference_orbit and self.halo_ref is not None:
+            rel_vel = sat.velocity - self.vel_ref_current
+        else:
+            rel_vel = sat.velocity
+
         obs = np.concatenate([rel_pos, rel_vel]).astype(np.float32)
         return obs
-
-    # ------------------------------------------------------------------
-    # Gymnasium API
-    # ------------------------------------------------------------------
 
     def seed(self, seed: int | None = None):
         self.np_random, _ = gym.utils.seeding.np_random(seed)
         return [seed]
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):
-        """
-        Reset the environment to an initial state.
-
-        Parameters
-        ----------
-        seed:
-            Optional random seed.
-        options:
-            Optional dictionary that may contain an ``"ic_type"`` key
-            controlling the initial-condition type.
-
-        Returns
-        -------
-        obs, info:
-            Initial observation and information dictionary.
-        """
         super().reset(seed=seed)
 
         ic_type = None
         if options is not None:
             ic_type = options.get("ic_type")
 
+        if self.use_reference_orbit and self.halo_ref is not None and self.halo_len > 0:
+            if self.np_random is not None:
+                self._halo_index = int(self.np_random.integers(0, self.halo_len))
+            else:
+                self._halo_index = 0
+        else:
+            self._halo_index = 0
+
         self.system = self._make_system(ic_type=ic_type)
         self.sim = Simulator(self.system)
         self.step_count = 0
+
+        if self.use_reference_orbit and self.halo_ref is not None and self.halo_len > 0:
+            ref = self.halo_ref[self._halo_index]
+            self.target = ref[: self.dim].astype(np.float64)
+            self.vel_ref_current = ref[self.dim : 2 * self.dim].astype(np.float64)
+        else:
+            self.target = self.lagrange_pos.copy()
+            self.vel_ref_current = np.zeros(self.dim, dtype=np.float64)
 
         obs = self._get_obs()
         info: dict = {"ic_type": ic_type or "l1_cloud"}
         return obs, info
 
     def step(self, action):
-        """
-        Perform one integration step of length ``dt`` using the selected
-        integrator.
-        """
         action = np.array(action, dtype=np.float32)
         action = np.clip(action, -1.0, 1.0)
 
@@ -295,6 +343,17 @@ class Cr3bpStationKeepingEnv(gym.Env):
 
         self.step_count += 1
 
+        if self.use_reference_orbit and self.halo_ref is not None and self.halo_len > 0:
+            self._halo_index = (self._halo_index + 1) % self.halo_len
+            ref = self.halo_ref[self._halo_index]
+            self.target = ref[: self.dim].astype(np.float64)
+            vel_ref = ref[self.dim : 2 * self.dim]
+            self.vel_ref_current = vel_ref.astype(np.float64)
+        else:
+            vel_ref = np.zeros(self.dim, dtype=float)
+            self.target = self.lagrange_pos.copy()
+            self.vel_ref_current = vel_ref.astype(np.float64)
+
         obs = self._get_obs()
         rel_pos = obs[: self.dim]
         rel_vel = obs[self.dim : 2 * self.dim]
@@ -311,20 +370,35 @@ class Cr3bpStationKeepingEnv(gym.Env):
         dist_p1 = float(np.linalg.norm(sat.position - primary1_pos))
         dist_p2 = float(np.linalg.norm(sat.position - primary2_pos))
 
-        if dist_target <= L1_DEADBAND:
-            pos_penalty = 0.0
+        if self.use_reference_orbit or self.deadband <= 0.0:
+            pos_penalty = self.w_pos * (dist_target**2)
         else:
-            excess = dist_target - L1_DEADBAND
-            pos_penalty = W_POS * (excess**2)
+            if dist_target <= self.deadband:
+                pos_penalty = 0.0
+            else:
+                excess = dist_target - self.deadband
+                pos_penalty = self.w_pos * (excess**2)
 
-        vel_penalty = W_VEL * float(np.linalg.norm(rel_vel))
-        ctrl_penalty = W_CTRL * float(np.linalg.norm(dv))
+        if self.use_reference_orbit and self.halo_ref is not None:
+            vel_penalty = self.w_vel * float(np.linalg.norm(rel_vel))
+        else:
+            vel_penalty = 0.0
+
+        ctrl_penalty = self.w_ctrl * float(np.linalg.norm(dv))
 
         far_penalty = 0.0
-        if dist_target > L1_FAR_LIMIT:
-            far_penalty = W_POS * (dist_target - L1_FAR_LIMIT) ** 2
+        if (not self.use_reference_orbit) and dist_target > self.far_limit:
+            far_penalty = self.w_pos * (dist_target - self.far_limit) ** 2
 
-        reward = -(pos_penalty + vel_penalty + ctrl_penalty + far_penalty)
+        planar_penalty = 0.0
+        if self.dim == 3:
+            z_pos = pos[2]
+            vz_val = vel[2]
+
+            if abs(z_pos) < PLANAR_Z_THRESHOLD and abs(vz_val) < PLANAR_VZ_THRESHOLD:
+                planar_penalty = self.w_planar
+
+        reward = -(pos_penalty + vel_penalty + ctrl_penalty + far_penalty + planar_penalty)
 
         crash_p1 = dist_p1 < CRASH_RADIUS_PRIMARY1
         crash_p2 = dist_p2 < CRASH_RADIUS_PRIMARY2
@@ -347,6 +421,7 @@ class Cr3bpStationKeepingEnv(gym.Env):
             "vel_penalty": vel_penalty,
             "ctrl_penalty": ctrl_penalty,
             "far_penalty": far_penalty,
+            "planar_penalty": planar_penalty,
             "crash_primary1": crash_p1,
             "crash_primary2": crash_p2,
             "dv": dv,

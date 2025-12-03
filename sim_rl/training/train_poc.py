@@ -17,11 +17,13 @@ import os
 from pathlib import Path
 from datetime import datetime
 import json
+from typing import Any
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
@@ -29,18 +31,33 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import (
     CheckpointCallback,
     EvalCallback,
-    ProgressBarCallback,
     BaseCallback,
 )
 
 from sim_rl.cr3bp.env_cr3bp_station_keeping import Cr3bpStationKeepingEnv
 from sim_rl.cr3bp.scenarios import SCENARIOS, ScenarioConfig
 
+from sim_rl.cr3bp.constants import (
+    W_POS,
+    W_VEL,
+    W_CTRL,
+    L1_DEADBAND,
+    L1_FAR_LIMIT,
+    CRASH_PENALTY,
+    PLANAR_Z_THRESHOLD,
+    PLANAR_VZ_THRESHOLD,
+    W_PLANAR,
+    W_POS_REF,
+    W_VEL_REF,
+    W_CTRL_REF,
+    W_PLANAR_REF,
+)
+
 # ----------------------------------------------------------------------
 # Hyperparameters
 # ----------------------------------------------------------------------
 
-TOTAL_TIMESTEPS = 2_000_000
+TOTAL_TIMESTEPS = 6_000_000
 N_ENVS = 4
 
 # Runs are stored in sim_rl/training/runs relative to this file
@@ -50,6 +67,7 @@ BASE_RUN_DIR = Path(__file__).resolve().parent / "runs"
 # ======================================================================
 # Run management
 # ======================================================================
+
 
 def make_run_dirs(scenario: ScenarioConfig) -> dict[str, Path]:
     """
@@ -77,7 +95,6 @@ def make_run_dirs(scenario: ScenarioConfig) -> dict[str, Path]:
     for d in (models_dir, logs_dir, rollouts_dir, config_dir):
         d.mkdir(parents=True, exist_ok=True)
 
-    # Optional pointer to the latest run
     latest_path = scenario_root / "latest_run.txt"
     try:
         latest_path.write_text(str(run_dir), encoding="utf-8")
@@ -96,14 +113,6 @@ def make_run_dirs(scenario: ScenarioConfig) -> dict[str, Path]:
 def export_eval_to_csv(eval_log_dir: Path, csv_path: Path) -> None:
     """
     Export evaluation results from ``evaluations.npz`` to a CSV file.
-
-    Parameters
-    ----------
-    eval_log_dir:
-        Directory containing ``evaluations.npz`` produced by
-        :class:`stable_baselines3.common.callbacks.EvalCallback`.
-    csv_path:
-        Output CSV path.
     """
     npz_path = eval_log_dir / "evaluations.npz"
     if not npz_path.exists():
@@ -138,12 +147,6 @@ def export_eval_to_csv(eval_log_dir: Path, csv_path: Path) -> None:
 
 
 def _safe_float(x):
-    """
-    Try to cast ``x`` to float, returning ``None`` if this is not possible.
-
-    This is mainly used to serialize certain Stable-Baselines3 schedule
-    objects which are not directly JSON-serializable.
-    """
     try:
         return float(x)
     except TypeError:
@@ -152,16 +155,7 @@ def _safe_float(x):
 
 def save_run_config(config_dir: Path, scenario: ScenarioConfig, model: PPO) -> None:
     """
-    Save scenario configuration and PPO hyperparameters as JSON.
-
-    Parameters
-    ----------
-    config_dir:
-        Target directory for ``run_config.json``.
-    scenario:
-        Scenario metadata.
-    model:
-        Trained PPO model instance.
+    Save scenario configuration, PPO hyperparameters AND REWARDS as JSON.
     """
     cfg = {
         "scenario": {
@@ -172,6 +166,23 @@ def save_run_config(config_dir: Path, scenario: ScenarioConfig, model: PPO) -> N
             "action_mode": scenario.action_mode,
             "pos_noise": scenario.pos_noise,
             "vel_noise": scenario.vel_noise,
+        },
+        "rewards": {
+            # Phase 1: L1 station-keeping
+            "w_pos": W_POS,
+            "w_vel": W_VEL,
+            "w_ctrl": W_CTRL,
+            "deadband": L1_DEADBAND,
+            "far_limit": L1_FAR_LIMIT,
+            "crash_penalty": CRASH_PENALTY,
+            "planar_z_threshold": PLANAR_Z_THRESHOLD,
+            "planar_vz_threshold": PLANAR_VZ_THRESHOLD,
+            "w_planar": W_PLANAR,
+            # Phase 2: reference-orbit tracking
+            "w_pos_ref": W_POS_REF,
+            "w_vel_ref": W_VEL_REF,
+            "w_ctrl_ref": W_CTRL_REF,
+            "w_planar_ref": W_PLANAR_REF,
         },
         "ppo": {
             "learning_rate": _safe_float(model.learning_rate),
@@ -199,40 +210,26 @@ def save_run_config(config_dir: Path, scenario: ScenarioConfig, model: PPO) -> N
 # Rollouts as CSV
 # ======================================================================
 
+
 def rollout_policy_to_csv(
     scenario: ScenarioConfig,
     model: PPO,
     csv_path: Path,
     max_steps: int | None = None,
     deterministic: bool = True,
+    use_reference_orbit: bool = False,
 ) -> None:
     """
     Run a rollout with the given policy and export it as CSV.
-
-    The CSV includes time, reward, position, velocity and delta-v
-    in the rotating frame.
-
-    Parameters
-    ----------
-    scenario:
-        Scenario used for environment construction.
-    model:
-        PPO policy to evaluate.
-    csv_path:
-        Output CSV path.
-    max_steps:
-        Optional maximum number of steps to simulate.
-    deterministic:
-        Whether to use deterministic actions.
     """
-    env = Cr3bpStationKeepingEnv(scenario=scenario)
+    env = Cr3bpStationKeepingEnv(scenario=scenario, use_reference_orbit=use_reference_orbit)
 
     obs, _ = env.reset()
     done = False
     truncated = False
     step = 0
 
-    records = []
+    records: list[dict[str, Any]] = []
 
     dt = env.dt
     dim = env.dim
@@ -245,19 +242,24 @@ def rollout_policy_to_csv(
         rel_vel = obs[dim : 2 * dim]
 
         pos = rel_pos + env.target
-        vel = rel_vel
+
+        if use_reference_orbit and hasattr(env, "vel_ref_current"):
+            vel = rel_vel + env.vel_ref_current
+        else:
+            vel = rel_vel
+
         dv = info.get("dv", np.zeros(dim))
 
         t = step * dt
 
-        row = {"t": t, "reward": reward}
+        row: dict[str, Any] = {"t": t, "reward": float(reward)}
 
         for i in range(dim):
-            row[f"x{i}"] = pos[i]
+            row[f"x{i}"] = float(pos[i])
         for i in range(dim):
-            row[f"v{i}"] = vel[i]
+            row[f"v{i}"] = float(vel[i])
         for i in range(dim):
-            row[f"dv{i}"] = dv[i]
+            row[f"dv{i}"] = float(dv[i])
 
         records.append(row)
         step += 1
@@ -274,15 +276,37 @@ def rollout_policy_to_csv(
 
 
 # ======================================================================
-# Callback: recording intermediate simulations
+# Custom Callbacks
 # ======================================================================
+
+
+class TqdmProgressCallback(BaseCallback):
+    """
+    Progress bar callback using tqdm.
+    """
+
+    def __init__(self, total_timesteps: int, verbose: int = 0):
+        super().__init__(verbose)
+        self.total_timesteps = int(total_timesteps)
+        self.pbar: tqdm | None = None
+
+    def _on_training_start(self) -> None:
+        self.pbar = tqdm(total=self.total_timesteps, desc="Training", unit="steps")
+
+    def _on_step(self) -> bool:
+        if self.pbar is not None:
+            self.pbar.update(self.model.n_envs)
+        return True
+
+    def _on_training_end(self) -> None:
+        if self.pbar is not None:
+            self.pbar.close()
+            self.pbar = None
+
 
 class SimulationRecorderCallback(BaseCallback):
     """
     Callback that records full simulations at selected rollout indices.
-
-    The recorded trajectories are stored as CSV files in the
-    ``rollouts`` directory of the current run.
     """
 
     def __init__(
@@ -294,14 +318,15 @@ class SimulationRecorderCallback(BaseCallback):
         power_start: int = 3,
         power_end: int = 11,
         max_steps: int | None = None,
+        use_reference_orbit: bool = False,
     ):
         super().__init__(verbose)
         self.scenario = scenario
         self.rollouts_dir = rollouts_dir
         self.n_sim_first = n_sim_first
         self.max_steps = max_steps
+        self.use_reference_orbit = use_reference_orbit
 
-        # Selected rollout indices (for example 8, 16, 32, ...)
         self.special_indices = {2**n for n in range(power_start, power_end + 1)}
 
         self.sim_index = 0
@@ -311,14 +336,10 @@ class SimulationRecorderCallback(BaseCallback):
             print("[SimulationRecorder] Training started, recording enabled.")
 
     def _on_rollout_end(self) -> None:
-        """
-        Called by Stable-Baselines3 after each PPO rollout.
-        """
         self.sim_index += 1
 
         should_record = (
-            self.sim_index <= self.n_sim_first
-            or self.sim_index in self.special_indices
+            self.sim_index <= self.n_sim_first or self.sim_index in self.special_indices
         )
 
         if not should_record:
@@ -327,42 +348,39 @@ class SimulationRecorderCallback(BaseCallback):
         csv_name = f"sim_{self.sim_index:03d}_steps_{self.num_timesteps}.csv"
         csv_path = self.rollouts_dir / csv_name
 
-        if self.verbose > 0:
-            print(
-                f"[SimulationRecorder] Recording simulation {self.sim_index} "
-                f"at timestep={self.num_timesteps} → {csv_path}"
-            )
-
         rollout_policy_to_csv(
             scenario=self.scenario,
             model=self.model,
             csv_path=csv_path,
             max_steps=self.max_steps,
             deterministic=True,
+            use_reference_orbit=self.use_reference_orbit,
         )
 
     def _on_step(self) -> bool:
         return True
-
-    def _on_training_end(self) -> None:
-        if self.verbose > 0:
-            print(
-                "[SimulationRecorder] Training finished. "
-                f"Recorded {self.sim_index} simulations."
-            )
 
 
 # ======================================================================
 # Environment factory
 # ======================================================================
 
-def make_env_fn(scenario: ScenarioConfig, seed_offset: int = 0):
+
+def make_env_fn(
+    scenario: ScenarioConfig,
+    seed_offset: int = 0,
+    use_reference_orbit: bool = False,
+):
     """
     Factory for environment instances compatible with :class:`DummyVecEnv`.
     """
 
     def _thunk():
-        env = Cr3bpStationKeepingEnv(scenario=scenario)
+        env = Cr3bpStationKeepingEnv(
+            scenario=scenario,
+            use_reference_orbit=use_reference_orbit,
+            seed=seed_offset,
+        )
         env = Monitor(env)
         return env
 
@@ -373,7 +391,13 @@ def make_env_fn(scenario: ScenarioConfig, seed_offset: int = 0):
 # Training entry point
 # ======================================================================
 
-def train(scenario_name: str = "earth-moon-L1-3D") -> None:
+
+def train(
+    scenario_name: str = "earth-moon-L1-3D",
+    use_reference_orbit: bool = False,
+    init_model_path: str | None = None,
+    learning_rate: float = 3e-4,
+) -> Path:
     """
     Train a PPO agent on the given scenario.
     """
@@ -381,7 +405,10 @@ def train(scenario_name: str = "earth-moon-L1-3D") -> None:
         raise KeyError(f"Unknown scenario: {scenario_name!r}")
 
     scenario = SCENARIOS[scenario_name]
-    print(f"[INFO] Starting training for scenario: {scenario.name}")
+    print(
+        f"[INFO] Starting training for scenario: {scenario.name} "
+        f"(use_reference_orbit={use_reference_orbit})"
+    )
 
     run_dirs = make_run_dirs(scenario)
     models_dir = run_dirs["models"]
@@ -389,27 +416,37 @@ def train(scenario_name: str = "earth-moon-L1-3D") -> None:
     rollouts_dir = run_dirs["rollouts"]
     config_dir = run_dirs["config"]
 
-    env = DummyVecEnv([make_env_fn(scenario, i) for i in range(N_ENVS)])
+    env = DummyVecEnv(
+        [make_env_fn(scenario, i, use_reference_orbit) for i in range(N_ENVS)]
+    )
 
     device = "cpu"
     print("Using device:", device)
 
-    model = PPO(
-        policy="MlpPolicy",
-        env=env,
-        verbose=1,
-        tensorboard_log=str(logs_dir / "tb"),
-        learning_rate=3e-4,
-        n_steps=2048 // max(N_ENVS, 1),
-        batch_size=64,
-        gamma=0.995,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=0.0,
-        vf_coef=0.5,
-        max_grad_norm=0.5,
-        device=device,
-    )
+    if init_model_path is not None:
+        print(f"[INFO] Loading initial model from: {init_model_path}")
+        model = PPO.load(
+            init_model_path,
+            env=env,
+            device=device,
+        )
+    else:
+        model = PPO(
+            policy="MlpPolicy",
+            env=env,
+            verbose=1,
+            tensorboard_log=str(logs_dir / "tb"),
+            learning_rate=learning_rate,
+            n_steps=2048 // max(N_ENVS, 1),
+            batch_size=64,
+            gamma=0.995,
+            gae_lambda=0.95,
+            clip_range=0.2,
+            ent_coef=0.0,
+            vf_coef=0.5,
+            max_grad_norm=0.5,
+            device=device,
+        )
 
     checkpoint_callback = CheckpointCallback(
         save_freq=100_000 // max(N_ENVS, 1),
@@ -417,7 +454,10 @@ def train(scenario_name: str = "earth-moon-L1-3D") -> None:
         name_prefix="checkpoint",
     )
 
-    eval_env = Cr3bpStationKeepingEnv(scenario=scenario)
+    eval_env = Cr3bpStationKeepingEnv(
+        scenario=scenario,
+        use_reference_orbit=use_reference_orbit,
+    )
     eval_env = Monitor(eval_env, filename=str(logs_dir / "eval_monitor.csv"))
 
     eval_callback = EvalCallback(
@@ -429,7 +469,7 @@ def train(scenario_name: str = "earth-moon-L1-3D") -> None:
         render=False,
     )
 
-    progress_callback = ProgressBarCallback()
+    progress_callback = TqdmProgressCallback(total_timesteps=TOTAL_TIMESTEPS)
 
     sim_recorder = SimulationRecorderCallback(
         scenario=scenario,
@@ -439,6 +479,7 @@ def train(scenario_name: str = "earth-moon-L1-3D") -> None:
         power_start=3,
         power_end=6,
         max_steps=None,
+        use_reference_orbit=use_reference_orbit,
     )
 
     model.learn(
@@ -454,27 +495,49 @@ def train(scenario_name: str = "earth-moon-L1-3D") -> None:
     export_eval_to_csv(Path(logs_dir), logs_dir / "eval_rewards.csv")
 
     best_model_path = models_dir / "best_model.zip"
+    chosen_ckpt: Path
     if best_model_path.exists():
-        final_csv = rollouts_dir / "best_policy_final_rollout.csv"
-        model_best = PPO.load(
-            best_model_path,
-            env=Cr3bpStationKeepingEnv(scenario=scenario),
-            device="cpu",
-        )
-        rollout_policy_to_csv(
-            scenario=scenario,
-            model=model_best,
-            csv_path=final_csv,
-            max_steps=None,
-            deterministic=True,
-        )
+        chosen_ckpt = best_model_path
+        print(f"[INFO] Found best_model.zip at: {best_model_path}")
     else:
-        print(f"[WARN] No best_model.zip found in {models_dir}.")
+        chosen_ckpt = last_model_path
+        print(
+            f"[WARN] No best_model.zip found in {models_dir}, "
+            f"using last model instead: {last_model_path}"
+        )
+
+    model_best = PPO.load(
+        chosen_ckpt,
+        env=Cr3bpStationKeepingEnv(
+            scenario=scenario,
+            use_reference_orbit=use_reference_orbit,
+        ),
+        device="cpu",
+    )
+    final_csv = rollouts_dir / "best_policy_final_rollout.csv"
+    rollout_policy_to_csv(
+        scenario=scenario,
+        model=model_best,
+        csv_path=final_csv,
+        max_steps=None,
+        deterministic=True,
+        use_reference_orbit=use_reference_orbit,
+    )
 
     env.close()
     eval_env.close()
 
+    return chosen_ckpt
+
 
 if __name__ == "__main__":
-    print("Starting training with device=cpu (PPO + MLP)")
-    train("earth-moon-L1-3D")
+    print("Starting single-phase training (Halo orbit tracking only) with device=cpu")
+
+    scenario_name = "earth-moon-L1-3D"
+
+    train(
+        scenario_name=scenario_name,
+        use_reference_orbit=True,
+        init_model_path=None,
+        learning_rate=3e-4,
+    )
