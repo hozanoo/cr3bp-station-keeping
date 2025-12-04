@@ -203,3 +203,26 @@ W_CTRL_REF: float = 0.08
 
 #: Planar penalty in reference-orbit mode (disabled, Halo pulls us out of plane).
 W_PLANAR_REF: float = 0.0
+
+
+# =====================================================================
+# REPO VERSION: Deterministic Scaling & Rewards
+# =====================================================================
+
+#: Hard scaling factor for Position input to the neural network.
+SCALE_POS: float = 20.0
+
+#: Hard scaling factor for Velocity input to the neural network.
+SCALE_VEL: float = 20.0
+
+#: Position penalty for Repo version (Tracking Reference).
+W_POS_REPO: float = 20.0
+
+#: Velocity penalty for Repo version.
+W_VEL_REPO: float = 0.05
+
+#: Control penalty for Repo version.
+W_CTRL_REPO: float = 0.08
+
+#: Planar penalty for Repo version (Disabled for Halo tracking).
+W_PLANAR_REPO: float = 0.0

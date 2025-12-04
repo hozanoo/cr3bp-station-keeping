@@ -53,6 +53,17 @@ SCENARIOS: dict[str, ScenarioConfig] = {
         vel_noise=0.0,
     ),
 
+    # Phase-3 scenario: halo-reference dataset along the stored halo orbit.
+    "earth-moon-L1-3D_halo_ref": ScenarioConfig(
+        name="earth-moon-L1-3D_halo_ref",
+        system="earth-moon",
+        lagrange_point="L1",
+        dim=3,
+        action_mode="full_3d",
+        pos_noise=0.0,
+        vel_noise=0.0,
+    ),
+
     # Example for a possible future 2D scenario:
     # "earth-moon-L1-2D": ScenarioConfig(
     #     name="earth-moon-L1-2D",

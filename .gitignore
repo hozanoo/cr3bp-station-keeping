@@ -38,6 +38,10 @@ runs/
 **/logs/
 **/models/
 
+runs_repo/
+**/logs/
+**/models/
+
 # ------------------------------------------------------------
 # HNN Checkpoints (optional: untrack large model files)
 hnn_models/checkpoints/*
@@ -78,3 +82,7 @@ build/
 dist/
 *.egg-info/
 *.egg
+
+
+
+runs_hnn
