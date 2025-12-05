@@ -362,7 +362,7 @@ def simulate_halo_reference_run(
 def export_halo_reference_batch(
     scenario_name: str = "earth-moon-L1-3D",
     n_simulations: int = 1000,
-    steps_per_sim: int = 600,
+    steps_per_sim: int = 2000,
 ) -> List[Path]:
     """
     Generate multiple halo-reference trajectories and export as CSV.
@@ -448,7 +448,7 @@ def generate_batch_simulations() -> List[Path]:
     paths_halo_ref = export_halo_reference_batch(
         scenario_name="earth-moon-L1-3D",
         n_simulations=1000,
-        steps_per_sim=600,
+        steps_per_sim=2000,
     )
 
     return paths_standard + paths_halo_ref
