@@ -24,7 +24,7 @@ MU_EARTH_SUN: float = 3.00348959632e-6
 DT: float = 0.01
 
 #: Maximum number of environment steps per episode.
-MAX_STEPS: int = 1200
+MAX_STEPS: int = 600
 
 
 # =====================================================================
@@ -135,13 +135,10 @@ BASE_START_STATES: dict[tuple[str, str, int], np.ndarray] = {
         ],
         dtype=float,
     ),
-
-    # Placeholders for future extensions, e.g.:
-    # ("earth-sun", "L2", 3): ...
 }
 
 # =====================================================================
-# Reward weights
+# Reward weights (Legacy / Standard)
 # =====================================================================
 
 #: Position penalty outside the deadband region.
@@ -195,18 +192,17 @@ W_PLANAR: float = 5.0
 W_POS_REF: float = 20.0
 
 #: Velocity penalty when tracking a reference orbit.
-# (kept identical to W_VEL for now, but split out for clarity)
 W_VEL_REF: float = 0.05
 
 #: Control penalty when tracking a reference orbit (discourage hovering).
 W_CTRL_REF: float = 0.08
 
-#: Planar penalty in reference-orbit mode (disabled, Halo pulls us out of plane).
+#: Planar penalty in reference-orbit mode.
 W_PLANAR_REF: float = 0.0
 
 
 # =====================================================================
-# REPO VERSION: Deterministic Scaling & Rewards
+# REPO VERSION: Deterministic Scaling & Rewards (Classic Integrator)
 # =====================================================================
 
 #: Hard scaling factor for Position input to the neural network.
@@ -215,7 +211,7 @@ SCALE_POS: float = 20.0
 #: Hard scaling factor for Velocity input to the neural network.
 SCALE_VEL: float = 20.0
 
-#: Position penalty for Repo version (Tracking Reference).
+#: Position penalty for Repo version.
 W_POS_REPO: float = 20.0
 
 #: Velocity penalty for Repo version.
@@ -224,5 +220,21 @@ W_VEL_REPO: float = 0.05
 #: Control penalty for Repo version.
 W_CTRL_REPO: float = 0.08
 
-#: Planar penalty for Repo version (Disabled for Halo tracking).
+#: Planar penalty for Repo version.
 W_PLANAR_REPO: float = 0.0
+
+
+# =====================================================================
+# HNN INTEGRATION & REWARDS (Domain C: Physics-Informed)
+# =====================================================================
+
+# Model filenames (Must exist in hnn_models/checkpoints/)
+HNN_MODEL_FILENAME: str = "hnn_cr3bp_l1_halo_finetune_v3.pt"
+HNN_META_FILENAME: str  = "hnn_cr3bp_l1_mixed_v3_meta.json"
+
+# Separate reward weights for HNN-based training
+# (Can be tuned independently from the classic integrator run)
+W_POS_HNN: float = 20.0
+W_VEL_HNN: float = 0.05
+W_CTRL_HNN: float = 0.08
+W_PLANAR_HNN: float = 0.0
