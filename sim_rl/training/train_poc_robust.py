@@ -96,7 +96,7 @@ BASE_RUN_DIR = Path(__file__).resolve().parent / "runs_robust"
 
 
 # ======================================================================
-# Helper Functions (Run Management)
+# Helper Functions (Run Management & Logging)
 # ======================================================================
 
 def make_run_dirs(scenario: ScenarioConfig) -> dict[str, Path]:
@@ -129,6 +129,42 @@ def make_run_dirs(scenario: ScenarioConfig) -> dict[str, Path]:
         "config": config_dir,
         "rollouts": rollouts_dir,
     }
+
+def export_eval_to_csv(eval_log_dir: Path, csv_path: Path) -> None:
+    """
+    Export evaluation results from ``evaluations.npz`` to a CSV file.
+    (This function was missing in the previous robust script).
+    """
+    npz_path = eval_log_dir / "evaluations.npz"
+    if not npz_path.exists():
+        print(f"[WARN] No evaluations.npz found in {eval_log_dir}")
+        return
+
+    data = np.load(npz_path)
+    timesteps = data["timesteps"]
+    results = data["results"]
+    ep_lengths = data.get("ep_lengths", None)
+
+    if results.ndim == 2:
+        mean_rewards = results.mean(axis=1)
+    else:
+        mean_rewards = results
+
+    df = pd.DataFrame(
+        {
+            "timesteps": timesteps,
+            "mean_reward": mean_rewards,
+        }
+    )
+    if ep_lengths is not None:
+        if ep_lengths.ndim == 2:
+            mean_lengths = ep_lengths.mean(axis=1)
+        else:
+            mean_lengths = ep_lengths
+        df["mean_ep_length"] = mean_lengths
+
+    df.to_csv(csv_path, index=False)
+    print(f"[INFO] Evaluation CSV written to: {csv_path}")
 
 def save_robust_config(config_dir: Path, scenario: ScenarioConfig, model: PPO):
     """
@@ -276,7 +312,7 @@ class TqdmProgressCallback(BaseCallback):
 class SimulationRecorderCallback(BaseCallback):
     """
     Callback that records full simulations at selected rollout indices.
-    Logic: Save first 20 rollouts, then every 50th rollout (50, 100, 150...).
+    Logic: Save first 20 rollouts, then every 50th rollout.
     """
 
     def __init__(
@@ -329,13 +365,12 @@ class SimulationRecorderCallback(BaseCallback):
 # Environment Factory
 # ======================================================================
 
-def make_env_fn(scenario: ScenarioConfig, rank: int, use_reference_orbit: bool):
+def make_env_fn(scenario: ScenarioConfig, rank: int, use_reference_orbit: bool, log_dir: Path):
     """
     Create a deterministic environment instance.
-    Importantly, we pass a unique seed derived from GLOBAL_SEED and rank.
+    Includes Monitor wrapper to save 'train_monitor.csv' logs (Monitor.csv logic).
     """
     def _thunk():
-        # Derive specific seed for this environment instance
         env_seed = GLOBAL_SEED + rank
         
         env = Cr3bpStationKeepingEnvRobust(
@@ -346,7 +381,10 @@ def make_env_fn(scenario: ScenarioConfig, rank: int, use_reference_orbit: bool):
         
         env.reset(seed=env_seed)
         
-        env = Monitor(env)
+        # Monitor saves episode stats (length, reward) to CSV
+        # We append rank to filename to avoid conflicts in VecEnv
+        filename = log_dir / f"train_monitor_{rank}.csv"
+        env = Monitor(env, filename=str(filename))
         return env
     return _thunk
 
@@ -370,8 +408,9 @@ def train_robust(
     dirs = make_run_dirs(scenario)
     
     # Create Vectorized Environment
+    # We pass dirs["logs"] so Monitor can save CSVs there
     env = DummyVecEnv([
-        make_env_fn(scenario, i, use_reference_orbit) for i in range(N_ENVS)
+        make_env_fn(scenario, i, use_reference_orbit, dirs["logs"]) for i in range(N_ENVS)
     ])
 
     # Initialize PPO with strict CPU settings
@@ -400,14 +439,13 @@ def train_robust(
         name_prefix="ckpt_robust"
     )
     
-    # Evaluation Callback
-    # We use a separate evaluation environment with its own seed
+    # Evaluation Callback (Saves evaluations.npz)
     eval_env = Cr3bpStationKeepingEnvRobust(
         scenario=scenario, 
         use_reference_orbit=use_reference_orbit,
         seed=GLOBAL_SEED + 100
     )
-    eval_env = Monitor(eval_env, filename=str(dirs["logs"] / "eval.csv"))
+    eval_env = Monitor(eval_env, filename=str(dirs["logs"] / "eval_monitor.csv"))
     
     eval_callback = EvalCallback(
         eval_env,
@@ -443,6 +481,9 @@ def train_robust(
     
     # Save Config
     save_robust_config(dirs["config"], scenario, model)
+
+    # Export Eval Data to CSV (The missing piece!)
+    export_eval_to_csv(dirs["logs"], dirs["logs"] / "eval_rewards.csv")
 
 
 if __name__ == "__main__":

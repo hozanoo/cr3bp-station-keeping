@@ -1,11 +1,12 @@
 """
 Gymnasium-compatible CR3BP station-keeping environment (Robust Version).
 
-This version extends the Repo environment by adding:
+This environment mirrors the reward structure of the deterministic 'Repo' version
+(Quadratic Position, Linear Velocity, Linear Control) to ensure efficient
+station-keeping behavior (sparsity), while adding physical robustness challenges:
 1. Domain Randomization (perturbation of mu).
 2. Actuator Noise (thrust magnitude and direction errors).
 3. External Disturbances (simulated unmodeled constant forces like SRP).
-4. Matches the Repo-Env reward structure (quadratic penalties, halo deadband).
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ class Cr3bpStationKeepingEnvRobust(gym.Env):
     - Randomized physical parameters (mu) per episode.
     - Noisy actuators (magnitude and direction).
     - External disturbance forces (constant bias per episode).
-    - Reward structure aligned with Repo version (quadratic, deadband tube).
+    - Hybrid Reward Structure: Quadratic Position, Linear Velocity/Control.
     """
 
     metadata = {"render_modes": []}
@@ -143,7 +144,7 @@ class Cr3bpStationKeepingEnvRobust(gym.Env):
             self.halo_len = self.halo_ref.shape[0]
 
         # ------------------------------------------------------------------
-        # Weight & Deadband Logic (Aligned with Repo)
+        # Weights & Deadband
         # ------------------------------------------------------------------
         if self.use_reference_orbit:
             # Use specific ROBUST weights
@@ -151,7 +152,7 @@ class Cr3bpStationKeepingEnvRobust(gym.Env):
             self.w_vel = float(W_VEL_ROBUST)
             self.w_ctrl = float(W_CTRL_ROBUST)
             self.w_planar = float(W_PLANAR_ROBUST)
-            # Use Halo Deadband
+            # Use Halo Deadband from constants (set to 0.0 in constants.py for strictness)
             self.deadband = float(HALO_DEADBAND)
         else:
             # Fallback to standard
@@ -200,7 +201,7 @@ class Cr3bpStationKeepingEnvRobust(gym.Env):
         """
         Creates the NBodySystem using the current (potentially perturbed) mu.
         """
-        mu = self.mu  # Use the perturbed mu specific to this episode
+        mu = self.mu
 
         primary_masses = [1.0 - mu, mu]
         if self.dim == 2:
@@ -431,7 +432,10 @@ class Cr3bpStationKeepingEnvRobust(gym.Env):
         obs = self._get_obs()
 
         # ------------------------------------------------------------------
-        # Rewards (Matched to Repo Logic: Quadratic + Halo Deadband)
+        # REWARDS: Hybrid structure matching Repo Version
+        # Position: Quadratic (**2) for stability
+        # Velocity: Linear (Norm) for damping
+        # Control:  Linear (Norm) for sparsity/fuel saving
         # ------------------------------------------------------------------
         rel_pos = sat.position - self.target
         rel_vel = sat.velocity - self.vel_ref_current
@@ -448,13 +452,13 @@ class Cr3bpStationKeepingEnvRobust(gym.Env):
         dist_p1 = float(np.linalg.norm(sat.position - primary1_pos))
         dist_p2 = float(np.linalg.norm(sat.position - primary2_pos))
 
-        # Position Penalty with Halo Deadband / Tube logic
+        # 1. Position Penalty (Quadratic)
         if self.use_reference_orbit:
             if dist_target <= self.deadband:
-                # Inside deadband: small penalty
+                # Inside deadband: Scaled quadratic penalty
                 pos_penalty = self.w_pos * (dist_target**2) * HALO_DEADBAND_INNER_WEIGHT
             else:
-                # Outside deadband: quadratic penalty on excess
+                # Outside deadband: Quadratic penalty on excess
                 excess = dist_target - self.deadband
                 pos_penalty = self.w_pos * (excess**2)
         else:
@@ -468,14 +472,15 @@ class Cr3bpStationKeepingEnvRobust(gym.Env):
                     excess = dist_target - self.deadband
                     pos_penalty = self.w_pos * (excess**2)
 
-        # Velocity Penalty (Quadratic)
+        # 2. Velocity Penalty (Linear)
         if self.use_reference_orbit and self.halo_ref is not None:
-            vel_penalty = self.w_vel * float(np.linalg.norm(rel_vel) ** 2)
+            vel_penalty = self.w_vel * float(np.linalg.norm(rel_vel))
         else:
             vel_penalty = 0.0
 
-        # Control Penalty (Quadratic)
-        ctrl_penalty = self.w_ctrl * float(np.linalg.norm(dv) ** 2)
+        # 3. Control Penalty (Linear)
+        # Using linear norm enforces sparsity (engines off behavior)
+        ctrl_penalty = self.w_ctrl * float(np.linalg.norm(dv))
 
         far_penalty = 0.0
         if (not self.use_reference_orbit) and dist_target > self.far_limit:

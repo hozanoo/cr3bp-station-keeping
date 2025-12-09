@@ -272,7 +272,7 @@ W_PLANAR_ROBUST: float = 0.0
 # =====================================================================
 
 #: Radius of the "tube" around the Halo orbit where errors are tolerated/weighted less.
-HALO_DEADBAND: float = 0.005
+HALO_DEADBAND: float = 0.0
 
 #: Scaling factor for reward INSIDE the deadband (e.g. 0.001 = weak penalty).
-HALO_DEADBAND_INNER_WEIGHT: float = 1.0e-3
+HALO_DEADBAND_INNER_WEIGHT: float = 0.0

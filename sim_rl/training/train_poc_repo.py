@@ -96,7 +96,7 @@ BASE_RUN_DIR = Path(__file__).resolve().parent / "runs_repo"
 
 
 # ======================================================================
-# Helper Functions (Run Management)
+# Helper Functions (Run Management & Logging)
 # ======================================================================
 
 def make_run_dirs(scenario: ScenarioConfig) -> dict[str, Path]:
@@ -111,12 +111,11 @@ def make_run_dirs(scenario: ScenarioConfig) -> dict[str, Path]:
     models_dir = run_dir / "models"
     logs_dir = run_dir / "logs"
     config_dir = run_dir / "config"
-    rollouts_dir = run_dir / "rollouts"  # Added rollouts dir
+    rollouts_dir = run_dir / "rollouts"
 
     for d in (models_dir, logs_dir, config_dir, rollouts_dir):
         d.mkdir(parents=True, exist_ok=True)
 
-    # --- DAS HIER WAR IM ORIGINAL UND IST PRAKTISCH ---
     latest_path = scenario_root / "latest_run.txt"
     try:
         latest_path.write_text(str(run_dir), encoding="utf-8")
@@ -131,6 +130,41 @@ def make_run_dirs(scenario: ScenarioConfig) -> dict[str, Path]:
         "rollouts": rollouts_dir,
     }
 
+def export_eval_to_csv(eval_log_dir: Path, csv_path: Path) -> None:
+    """
+    Export evaluation results from ``evaluations.npz`` to a CSV file.
+    """
+    npz_path = eval_log_dir / "evaluations.npz"
+    if not npz_path.exists():
+        print(f"[WARN] No evaluations.npz found in {eval_log_dir}")
+        return
+
+    data = np.load(npz_path)
+    timesteps = data["timesteps"]
+    results = data["results"]
+    ep_lengths = data.get("ep_lengths", None)
+
+    if results.ndim == 2:
+        mean_rewards = results.mean(axis=1)
+    else:
+        mean_rewards = results
+
+    df = pd.DataFrame(
+        {
+            "timesteps": timesteps,
+            "mean_reward": mean_rewards,
+        }
+    )
+    if ep_lengths is not None:
+        if ep_lengths.ndim == 2:
+            mean_lengths = ep_lengths.mean(axis=1)
+        else:
+            mean_lengths = ep_lengths
+        df["mean_ep_length"] = mean_lengths
+
+    df.to_csv(csv_path, index=False)
+    print(f"[INFO] Evaluation CSV written to: {csv_path}")
+
 def save_repo_config(config_dir: Path, scenario: ScenarioConfig, model: PPO):
     """
     Save the configuration including the specific Repo constants.
@@ -142,7 +176,6 @@ def save_repo_config(config_dir: Path, scenario: ScenarioConfig, model: PPO):
             "system": scenario.system,
             "lagrange_point": scenario.lagrange_point,
             "action_mode": scenario.action_mode,
-            # --- FIX: Missing parameters added ---
             "dim": scenario.dim,
             "pos_noise": scenario.pos_noise,
             "vel_noise": scenario.vel_noise,
@@ -194,7 +227,7 @@ def rollout_policy_to_csv(
     env = Cr3bpStationKeepingEnvRepo(scenario=scenario, use_reference_orbit=use_reference_orbit)
     
     # Reset
-    obs, info = env.reset(seed=42) # Fixed seed for comparison? Or random? Let's use fixed 42 for consistency.
+    obs, info = env.reset(seed=42) # Fixed seed for consistency
     done = False
     truncated = False
     step = 0
@@ -210,14 +243,13 @@ def rollout_policy_to_csv(
         obs, reward, done, truncated, info = env.step(action)
 
         # In Repo Env, obs is scaled! 
-        # But for CSV logging we want physical values (or raw obs + scaling info).
-        # To be consistent with old code, let's reconstruct physical state using env.target
+        # For CSV logging we want physical values.
         
         # Get scaled relative state from obs
         scaled_pos = obs[:dim]
         scaled_vel = obs[dim : 2 * dim]
         
-        # Unscale (Manually here for logging)
+        # Unscale
         rel_pos = scaled_pos / SCALE_POS
         rel_vel = scaled_vel / SCALE_VEL
 
@@ -235,7 +267,7 @@ def rollout_policy_to_csv(
         row: dict[str, Any] = {"t": t, "reward": float(reward)}
 
         for i in range(dim):
-            row[f"pos_rot_abs_{i}"] = float(pos[i]) # Renamed to be clear
+            row[f"pos_rot_abs_{i}"] = float(pos[i])
         for i in range(dim):
             row[f"vel_rot_abs_{i}"] = float(vel[i])
         for i in range(dim):
@@ -250,7 +282,6 @@ def rollout_policy_to_csv(
     df = pd.DataFrame(records)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(csv_path, index=False)
-    # print(f"[INFO] Rollout written to: {csv_path}") # Verbose off
     env.close()
 
 
@@ -305,7 +336,6 @@ class SimulationRecorderCallback(BaseCallback):
     def _on_rollout_end(self) -> None:
         self.rollout_count += 1
         
-        # --- NEW LOGIC: 1 to 20, then every 50 ---
         should_record = False
         
         if self.rollout_count <= 20:
@@ -337,10 +367,11 @@ class SimulationRecorderCallback(BaseCallback):
 # Environment Factory
 # ======================================================================
 
-def make_env_fn(scenario: ScenarioConfig, rank: int, use_reference_orbit: bool):
+def make_env_fn(scenario: ScenarioConfig, rank: int, use_reference_orbit: bool, log_dir: Path):
     """
     Create a deterministic environment instance.
     Importantly, we pass a unique seed derived from GLOBAL_SEED and rank.
+    Includes Monitor for CSV logging.
     """
     def _thunk():
         # Derive specific seed for this environment instance
@@ -349,14 +380,14 @@ def make_env_fn(scenario: ScenarioConfig, rank: int, use_reference_orbit: bool):
         env = Cr3bpStationKeepingEnvRepo(
             scenario=scenario,
             use_reference_orbit=use_reference_orbit,
-            seed=env_seed  # This calls env.reset(seed=env_seed) internally via constructor logic or manually
+            seed=env_seed 
         )
-        # We must explicitly call reset with seed in new Gymnasium versions if not done in __init__
-        # But our Repo class calls seed() in __init__, so it's fine.
-        # Just to be 100% safe regarding the first reset:
+        
         env.reset(seed=env_seed)
         
-        env = Monitor(env)
+        # Save train logs to CSV
+        filename = log_dir / f"train_monitor_{rank}.csv"
+        env = Monitor(env, filename=str(filename))
         return env
     return _thunk
 
@@ -379,10 +410,10 @@ def train_repo(
     # Create directories
     dirs = make_run_dirs(scenario)
     
-    # Create Vectorized Environment (DummyVecEnv is safer for determinism than Subproc)
+    # Create Vectorized Environment
     # N_ENVS = 4 allows for batch diversity while running on a single CPU thread sequentially.
     env = DummyVecEnv([
-        make_env_fn(scenario, i, use_reference_orbit) for i in range(N_ENVS)
+        make_env_fn(scenario, i, use_reference_orbit, dirs["logs"]) for i in range(N_ENVS)
     ])
 
     # Initialize PPO with strict CPU settings
@@ -412,13 +443,13 @@ def train_repo(
     )
     
     # Evaluation Callback
-    # We use a separate evaluation environment with its own seed (e.g., GLOBAL_SEED + 100)
+    # We use a separate evaluation environment with its own seed
     eval_env = Cr3bpStationKeepingEnvRepo(
         scenario=scenario, 
         use_reference_orbit=use_reference_orbit,
         seed=GLOBAL_SEED + 100
     )
-    eval_env = Monitor(eval_env, filename=str(dirs["logs"] / "eval.csv"))
+    eval_env = Monitor(eval_env, filename=str(dirs["logs"] / "eval_monitor.csv"))
     
     eval_callback = EvalCallback(
         eval_env,
@@ -431,12 +462,12 @@ def train_repo(
     
     progress_callback = TqdmProgressCallback(total_timesteps=TOTAL_TIMESTEPS)
 
-    # Simulation Recorder (Dein Wunsch: Speichern der Rollouts)
+    # Simulation Recorder
     sim_recorder = SimulationRecorderCallback(
         scenario=scenario,
         rollouts_dir=dirs["rollouts"],
         verbose=0,
-        max_steps=None, # Run until done or max_steps defined in env
+        max_steps=None, 
         use_reference_orbit=use_reference_orbit
     )
 
@@ -454,6 +485,9 @@ def train_repo(
     
     # Save Config
     save_repo_config(dirs["config"], scenario, model)
+
+    # Export Eval Data to CSV
+    export_eval_to_csv(dirs["logs"], dirs["logs"] / "eval_rewards.csv")
 
 
 if __name__ == "__main__":
