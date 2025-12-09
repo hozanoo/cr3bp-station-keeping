@@ -23,9 +23,8 @@ MU_EARTH_SUN: float = 3.00348959632e-6
 #: Time step in the rotating, normalized CR3BP system.
 DT: float = 0.01
 
-#: Maximum number of environment steps per episode.
+#: Maximum number of environment steps per episode (Standard/Robust).
 MAX_STEPS: int = 1200
-
 
 # =====================================================================
 # L1 / L2 approximations
@@ -232,6 +231,9 @@ W_PLANAR_REPO: float = 0.0
 HNN_MODEL_FILENAME: str = "hnn_cr3bp_l1_halo_finetune_v3.pt"
 HNN_META_FILENAME: str  = "hnn_cr3bp_l1_mixed_v3_meta.json"
 
+#: Shorter episode length for HNN to avoid long-term error accumulation.
+MAX_STEPS_HNN: int = 700
+
 # Separate reward weights for HNN-based training
 W_POS_HNN: float = 20.0
 W_VEL_HNN: float = 0.05
@@ -252,7 +254,7 @@ ACTUATOR_NOISE_MAG: float = 0.01
 ACTUATOR_NOISE_ANGLE: float = 0.005
 
 #: Magnitude of the random constant disturbance acceleration (approximates SRP/unknown forces).
-# Set to 0.1 for stress testing as requested. Normal range ~1e-4.
+#: Set to 1.0e-4 for realistic Gold-Run.
 DISTURBANCE_ACC_MAG: float = 1.0e-4
 
 #: Position penalty for Robust version.

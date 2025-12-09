@@ -46,6 +46,7 @@ runs_hnn
 
 runs_robust
 
+runs_hnn_robust
 # ------------------------------------------------------------
 # HNN Checkpoints (optional: untrack large model files)
 hnn_models/checkpoints/*
