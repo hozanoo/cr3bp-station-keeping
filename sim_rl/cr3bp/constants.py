@@ -24,7 +24,7 @@ MU_EARTH_SUN: float = 3.00348959632e-6
 DT: float = 0.01
 
 #: Maximum number of environment steps per episode.
-MAX_STEPS: int = 600
+MAX_STEPS: int = 1200
 
 
 # =====================================================================
@@ -108,8 +108,8 @@ LAGRANGE_POINTS: dict[str, dict[str, np.ndarray]] = {
 
 # Key: (system_id, lagrange_point, dim)
 # Values:
-#   dim = 2 → [x, y, vx, vy]
-#   dim = 3 → [x, y, z, vx, vy, vz]
+#   dim = 2 -> [x, y, vx, vy]
+#   dim = 3 -> [x, y, z, vx, vy, vz]
 
 BASE_START_STATES: dict[tuple[str, str, int], np.ndarray] = {
     # Earth–Moon, L1, 2D
@@ -123,7 +123,7 @@ BASE_START_STATES: dict[tuple[str, str, int], np.ndarray] = {
         dtype=float,
     ),
 
-    # Earth–Moon, L1, 3D (small z-offset → halo-like)
+    # Earth–Moon, L1, 3D (small z-offset -> halo-like)
     ("earth-moon", "L1", 3): np.array(
         [
             LAGRANGE_POINTS["earth-moon"]["L1"][0] - 0.04,  # x
@@ -233,8 +233,46 @@ HNN_MODEL_FILENAME: str = "hnn_cr3bp_l1_halo_finetune_v3.pt"
 HNN_META_FILENAME: str  = "hnn_cr3bp_l1_mixed_v3_meta.json"
 
 # Separate reward weights for HNN-based training
-# (Can be tuned independently from the classic integrator run)
 W_POS_HNN: float = 20.0
 W_VEL_HNN: float = 0.05
 W_CTRL_HNN: float = 0.08
 W_PLANAR_HNN: float = 0.0
+
+# =====================================================================
+# ROBUST VERSION: Stochastic & Disturbance Constants
+# =====================================================================
+
+#: Percentage of uncertainty applied to the mass parameter mu (e.g. 0.005 = 0.5%).
+MU_UNCERTAINTY_PERCENT: float = 0.005
+
+#: Standard deviation for actuator magnitude noise (percentage, e.g. 0.01 = 1%).
+ACTUATOR_NOISE_MAG: float = 0.01
+
+#: Standard deviation for actuator direction noise (radians).
+ACTUATOR_NOISE_ANGLE: float = 0.005
+
+#: Magnitude of the random constant disturbance acceleration (approximates SRP/unknown forces).
+# Set to 0.1 for stress testing as requested. Normal range ~1e-4.
+DISTURBANCE_ACC_MAG: float = 1.0e-4
+
+#: Position penalty for Robust version.
+W_POS_ROBUST: float = 20.0
+
+#: Velocity penalty for Robust version.
+W_VEL_ROBUST: float = 0.05
+
+#: Control penalty for Robust version.
+W_CTRL_ROBUST: float = 0.08
+
+#: Planar penalty for Robust version.
+W_PLANAR_ROBUST: float = 0.0
+
+# =====================================================================
+# ROBUST/REPO COMPATIBILITY (Reward Consistency)
+# =====================================================================
+
+#: Radius of the "tube" around the Halo orbit where errors are tolerated/weighted less.
+HALO_DEADBAND: float = 0.005
+
+#: Scaling factor for reward INSIDE the deadband (e.g. 0.001 = weak penalty).
+HALO_DEADBAND_INNER_WEIGHT: float = 1.0e-3

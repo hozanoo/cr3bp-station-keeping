@@ -42,6 +42,10 @@ runs_repo/
 **/logs/
 **/models/
 
+runs_hnn
+
+runs_robust
+
 # ------------------------------------------------------------
 # HNN Checkpoints (optional: untrack large model files)
 hnn_models/checkpoints/*
@@ -85,4 +89,4 @@ dist/
 
 
 
-runs_hnn
+
