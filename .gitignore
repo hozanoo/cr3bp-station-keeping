@@ -16,7 +16,7 @@ station_keeping/
 # ------------------------------------------------------------
 # Jupyter Notebooks (experimental analysis)
 # ------------------------------------------------------------
-notebooks/
+visualizations/
 .ipynb_checkpoints/
 *.ipynb_checkpoints/
 sim_rl/training/*.ipynb
