@@ -49,6 +49,9 @@ RUN_DIR = Path(
 PRIMARY_ROLLOUT = RUN_DIR / "rollouts" / "sim_2900_steps_5939200.csv"
 SECONDARY_ROLLOUT = RUN_DIR / "rollouts" / "sim_0008_steps_16384.csv"
 
+# Uncontrolled free-drift rollout (already exported from Jupyter)
+FREE_ROLLOUT = HERE / "free_drift_uncontrolled.csv"
+
 CZML_FILENAME = HERE / "station_keeping_mission.czml"
 MODEL_FILENAME = HERE / "Gateway_Core.glb"
 
@@ -200,7 +203,7 @@ def extract_probe_data(
 
 
 # --------------------------------------------------------------------
-# 4. Build CZML content for primary and secondary runs
+# 4. Build CZML content for primary, secondary and free-drift runs
 # --------------------------------------------------------------------
 
 if not RUN_DIR.exists():
@@ -210,6 +213,7 @@ print(f"[INFO] Using fixed robust run directory: {RUN_DIR}")
 
 seconds_per_step = DT * (SIDEREAL_MONTH_SEC / (2 * np.pi))
 
+# Primary (robust) run
 df_primary = load_and_crop_rollout(PRIMARY_ROLLOUT)
 probe_pos_primary, rgba_primary, moon_pos_data, end_time_primary = extract_probe_data(
     df_primary,
@@ -217,6 +221,7 @@ probe_pos_primary, rgba_primary, moon_pos_data, end_time_primary = extract_probe
     include_moon=True,
 )
 
+# Secondary (early) run
 probe_pos_secondary = []
 rgba_secondary = []
 end_time_secondary = START_TIME
@@ -236,7 +241,28 @@ if SECONDARY_ROLLOUT.exists():
 else:
     print(f"[WARN] Secondary rollout not found: {SECONDARY_ROLLOUT}")
 
-end_time = max(end_time_primary, end_time_secondary)
+# Free-drift (uncontrolled) run
+probe_pos_free = []
+rgba_free = []
+end_time_free = START_TIME
+
+if FREE_ROLLOUT.exists():
+    df_free = load_and_crop_rollout(FREE_ROLLOUT)
+    (
+        probe_pos_free,
+        rgba_free,
+        _,
+        end_time_free,
+    ) = extract_probe_data(
+        df_free,
+        seconds_per_step,
+        include_moon=False,
+    )
+else:
+    print(f"[WARN] Free-drift rollout not found: {FREE_ROLLOUT}")
+
+# Global interval (max over all available runs)
+end_time = max(end_time_primary, end_time_secondary, end_time_free)
 
 interval_str = (
     f"{START_TIME.isoformat().replace('+00:00','Z')}/"
@@ -340,6 +366,43 @@ if probe_pos_secondary:
                         "color": {
                             "epoch": START_TIME.isoformat().replace("+00:00", "Z"),
                             "rgba": rgba_secondary,
+                        },
+                        "outlineColor": {"rgba": [255, 255, 255, 255]},
+                        "outlineWidth": 1,
+                    }
+                },
+                "width": 4,
+                "leadTime": 0,
+                "trailTime": 10_000_000,
+            },
+        }
+    )
+
+if probe_pos_free:
+    czml.append(
+        {
+            "id": "StationKeepingProbe_FreeDrift",
+            "name": "Station-Keeping Probe (free drift)",
+            "availability": interval_str,
+            "position": {
+                "epoch": START_TIME.isoformat().replace("+00:00", "Z"),
+                "cartesian": probe_pos_free,
+            },
+            "model": {
+                "gltf": model_uri,
+                "scale": 2000.0,
+                "minimumPixelSize": 128,
+                "show": True,
+            },
+            "orientation": {
+                "velocityReference": "#StationKeepingProbe_FreeDrift"
+            },
+            "path": {
+                "material": {
+                    "polylineOutline": {
+                        "color": {
+                            "epoch": START_TIME.isoformat().replace("+00:00", "Z"),
+                            "rgba": rgba_free,
                         },
                         "outlineColor": {"rgba": [255, 255, 255, 255]},
                         "outlineWidth": 1,

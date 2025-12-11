@@ -66,6 +66,7 @@
     <select id="runSelect">
       <option value="perfect">Robust run (sim_2900)</option>
       <option value="early">Early run (sim_0008)</option>
+      <option value="free">Free drift (uncontrolled)</option>
     </select>
   </div>
 
@@ -110,6 +111,7 @@
 
         const perfectProbe = dataSource.entities.getById("StationKeepingProbe");
         const earlyProbe   = dataSource.entities.getById("StationKeepingProbe_Run0008");
+        const freeProbe    = dataSource.entities.getById("StationKeepingProbe_FreeDrift");
 
         const runSelect = document.getElementById("runSelect");
 
@@ -121,14 +123,16 @@
 
             const isPerfect = entity.id === "StationKeepingProbe";
             const isEarly   = entity.id === "StationKeepingProbe_Run0008";
+            const isFree    = entity.id === "StationKeepingProbe_FreeDrift";
 
-            if (!isPerfect && !isEarly) {
+            if (!isPerfect && !isEarly && !isFree) {
               continue;
             }
 
             const shouldShow =
               (value === "perfect" && isPerfect) ||
-              (value === "early"   && isEarly);
+              (value === "early"   && isEarly) ||
+              (value === "free"    && isFree);
 
             entity.show = shouldShow;
             if (entity.model) {
@@ -140,6 +144,8 @@
             viewer.trackedEntity = perfectProbe;
           } else if (value === "early" && earlyProbe) {
             viewer.trackedEntity = earlyProbe;
+          } else if (value === "free" && freeProbe) {
+            viewer.trackedEntity = freeProbe;
           }
         }
 
