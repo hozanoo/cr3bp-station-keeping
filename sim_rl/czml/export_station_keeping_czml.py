@@ -3,18 +3,18 @@
 """
 Export a station-keeping PPO rollout to a CesiumJS CZML file.
 
-This utility reads the final rollout of a trained CR3BP station-keeping model
-(for example ``final_rollout_after_manual_stop.csv``) and converts it into a
-CZML file that can be visualized in CesiumJS.
+This utility reads a rollout of a trained CR3BP station-keeping model
+and converts it into a CZML file that can be visualized in CesiumJS.
 
 Assumptions
 -----------
 
 - Scenario name: ``earth-moon-L1-3D`` (default).
-- Run directory structure compatible with :mod:`sim_rl.training.train_poc`,
-  i.e. ``sim_rl/training/runs/<scenario_name>/run_YYYYMMDD_HHMMSS/rollouts/...``.
-- The final rollout CSV contains position and delta-v columns
-  (``x0, x1, x2, dv0, dv1, dv2``).
+- Run directory structure compatible with the robust training script, i.e.
+  ``sim_rl/training/runs_robust/<scenario_name>/run_YYYYMMDD_HHMMSS/rollouts/...``.
+- The rollout CSV contains absolute position in the rotating frame
+  (``pos_rot_abs_0, pos_rot_abs_1, pos_rot_abs_2``) and delta-v columns
+  (``dv_0, dv_1, dv_2``).
 - A GLTF spacecraft model is expected at
   ``sim_rl/czml/Gateway_Core.glb``; if missing, a Cesium sample
   model is used as fallback.
@@ -37,8 +37,15 @@ import matplotlib.pyplot as plt
 
 SCENARIO_NAME = "earth-moon-L1-3D"
 
-BASE_RUN_DIR = Path(__file__).resolve().parents[1] / "training" / "runs"
 HERE = Path(__file__).resolve().parent
+
+# Robust training run base directory
+BASE_RUN_DIR = HERE.parents[1] / "training" / "runs_robust"
+
+# Fixed robust run used for Cesium export
+RUN_DIR = Path(
+    r"C:\Users\hosan\Desktop\cr3bp_project_3d\sim_rl\training\runs_robust\earth-moon-L1-3D\run_20251209_114916"
+)
 
 CZML_FILENAME = HERE / "station_keeping_mission.czml"
 MODEL_FILENAME = HERE / "Gateway_Core.glb"
@@ -55,7 +62,7 @@ START_TIME = datetime.datetime(
 )
 
 # --------------------------------------------------------------------
-# 2. Correct GLTF model path (IMPORTANT FIX)
+# 2. Model URI resolution
 # --------------------------------------------------------------------
 
 FALLBACK_MODEL_URL = (
@@ -63,11 +70,8 @@ FALLBACK_MODEL_URL = (
     "Apps/SampleData/models/CesiumAir/Cesium_Air.glb"
 )
 
-# IMPORTANT CHANGE:
-# Instead of writing absolute Windows path ("C:/..."),
-# write a relative path so Cesium over Nginx can load it.
 if MODEL_FILENAME.exists():
-    model_uri = MODEL_FILENAME.name  # <-- USE RELATIVE URL
+    model_uri = MODEL_FILENAME.name
     print(f"[INFO] Local GLTF model found: {MODEL_FILENAME}")
 else:
     model_uri = FALLBACK_MODEL_URL
@@ -77,26 +81,15 @@ else:
     )
 
 # --------------------------------------------------------------------
-# 3. Locate rollout directory
+# 3. Locate rollout CSV (fixed robust run)
 # --------------------------------------------------------------------
 
-scenario_root = BASE_RUN_DIR / SCENARIO_NAME
-latest_txt = scenario_root / "latest_run.txt"
+if not RUN_DIR.exists():
+    raise FileNotFoundError(f"Configured RUN_DIR does not exist: {RUN_DIR}")
 
-if latest_txt.exists():
-    run_dir = Path(latest_txt.read_text(encoding="utf-8").strip())
-    print(f"[INFO] Using run from latest_run.txt: {run_dir}")
-else:
-    candidates = [
-        d for d in scenario_root.iterdir()
-        if d.is_dir() and d.name.startswith("run_")
-    ]
-    if not candidates:
-        raise FileNotFoundError(f"No run_* directories found in {scenario_root}")
-    run_dir = sorted(candidates)[-1]
-    print(f"[INFO] Using latest run_* directory: {run_dir}")
+print(f"[INFO] Using fixed robust run directory: {RUN_DIR}")
 
-csv_path = run_dir / "rollouts" / "final_rollout_after_manual_stop.csv"
+csv_path = RUN_DIR / "rollouts" / "sim_2900_steps_5939200.csv"
 if not csv_path.exists():
     raise FileNotFoundError(f"Rollout CSV not found: {csv_path}")
 
@@ -109,22 +102,26 @@ if len(df) > MAX_STEPS:
     df = df.iloc[:MAX_STEPS].reset_index(drop=True)
     print(f"[INFO] Using first {MAX_STEPS} steps from rollout.")
 else:
-    print(f"[INFO] Using all {len(df)} steps from rollout.")
+    print(f"[INFO] Using all {len(df)} steps from rollout (N={len(df)}).")
 
 # --------------------------------------------------------------------
 # 4. Extract position and Δv
 # --------------------------------------------------------------------
 
-required_pos_cols = {"x0", "x1", "x2"}
+required_pos_cols = {"pos_rot_abs_0", "pos_rot_abs_1", "pos_rot_abs_2"}
 if not required_pos_cols.issubset(df.columns):
-    raise KeyError("CSV must contain columns x0, x1, x2.")
+    missing = required_pos_cols.difference(df.columns)
+    raise KeyError(
+        f"CSV must contain columns {sorted(required_pos_cols)}, "
+        f"missing: {sorted(missing)}"
+    )
 
-x_rel = df["x0"].to_numpy()
-y_rel = df["x1"].to_numpy()
-z_rel = df["x2"].to_numpy()
+x_rel = df["pos_rot_abs_0"].to_numpy()
+y_rel = df["pos_rot_abs_1"].to_numpy()
+z_rel = df["pos_rot_abs_2"].to_numpy()
 
-if {"dv0", "dv1", "dv2"}.issubset(df.columns):
-    dv_vecs = df[["dv0", "dv1", "dv2"]].to_numpy()
+if {"dv_0", "dv_1", "dv_2"}.issubset(df.columns):
+    dv_vecs = df[["dv_0", "dv_1", "dv_2"]].to_numpy()
     dv_norms = np.linalg.norm(dv_vecs, axis=1)
     max_thrust = np.max(dv_norms) if np.max(dv_norms) > 0 else 1.0
     norm_dv = dv_norms / max_thrust
@@ -134,10 +131,10 @@ if {"dv0", "dv1", "dv2"}.issubset(df.columns):
     )
 else:
     norm_dv = np.zeros(len(df))
-    print("[INFO] No dv0/dv1/dv2 columns found. Using constant path color.")
+    print("[INFO] No dv_0/dv_1/dv_2 columns found. Using constant path color.")
 
 # --------------------------------------------------------------------
-# 5. Rotating->Inertial transform & timestamps
+# 5. Rotating -> inertial transform and timestamps
 # --------------------------------------------------------------------
 
 seconds_per_step = DT * (SIDEREAL_MONTH_SEC / (2 * np.pi))
@@ -245,7 +242,7 @@ czml = [
             "cartesian": probe_pos_data,
         },
         "model": {
-            "gltf": model_uri,     # <-- FIXED
+            "gltf": model_uri,
             "scale": 2000.0,
             "minimumPixelSize": 128,
             "show": True,
