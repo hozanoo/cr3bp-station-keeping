@@ -1,10 +1,11 @@
 # sim_rl/czml/export_station_keeping_czml.py
 
 """
-Export a station-keeping PPO rollout to a CesiumJS CZML file.
+Export station-keeping PPO rollouts to a CesiumJS CZML file.
 
-This utility reads a rollout of a trained CR3BP station-keeping model
-and converts it into a CZML file that can be visualized in CesiumJS.
+This utility reads one or more rollouts of a trained CR3BP
+station-keeping model and converts them into a CZML file that can be
+visualized in CesiumJS.
 
 Assumptions
 -----------
@@ -12,7 +13,7 @@ Assumptions
 - Scenario name: ``earth-moon-L1-3D`` (default).
 - Run directory structure compatible with the robust training script, i.e.
   ``sim_rl/training/runs_robust/<scenario_name>/run_YYYYMMDD_HHMMSS/rollouts/...``.
-- The rollout CSV contains absolute position in the rotating frame
+- Rollout CSVs contain absolute position in the rotating frame
   (``pos_rot_abs_0, pos_rot_abs_1, pos_rot_abs_2``) and delta-v columns
   (``dv_0, dv_1, dv_2``).
 - A GLTF spacecraft model is expected at
@@ -25,7 +26,6 @@ from __future__ import annotations
 import json
 import datetime
 from pathlib import Path
-import os
 
 import numpy as np
 import pandas as pd
@@ -39,13 +39,15 @@ SCENARIO_NAME = "earth-moon-L1-3D"
 
 HERE = Path(__file__).resolve().parent
 
-# Robust training run base directory
 BASE_RUN_DIR = HERE.parents[1] / "training" / "runs_robust"
 
-# Fixed robust run used for Cesium export
 RUN_DIR = Path(
     r"C:\Users\hosan\Desktop\cr3bp_project_3d\sim_rl\training\runs_robust\earth-moon-L1-3D\run_20251209_114916"
 )
+
+# Main (late, "perfect") rollout and secondary (early) rollout
+PRIMARY_ROLLOUT = RUN_DIR / "rollouts" / "sim_2900_steps_5939200.csv"
+SECONDARY_ROLLOUT = RUN_DIR / "rollouts" / "sim_0008_steps_16384.csv"
 
 CZML_FILENAME = HERE / "station_keeping_mission.czml"
 MODEL_FILENAME = HERE / "Gateway_Core.glb"
@@ -81,7 +83,124 @@ else:
     )
 
 # --------------------------------------------------------------------
-# 3. Locate rollout CSV (fixed robust run)
+# 3. Helper functions
+# --------------------------------------------------------------------
+
+
+def load_and_crop_rollout(csv_path: Path) -> pd.DataFrame:
+    """
+    Load a rollout CSV and crop it to MAX_STEPS if necessary.
+    """
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Rollout CSV not found: {csv_path}")
+
+    print(f"[INFO] Loading rollout CSV: {csv_path}")
+    df_local = pd.read_csv(csv_path)
+    df_local.columns = df_local.columns.str.strip()
+
+    if len(df_local) > MAX_STEPS:
+        df_local = df_local.iloc[:MAX_STEPS].reset_index(drop=True)
+        print(f"[INFO] Using first {MAX_STEPS} steps from rollout.")
+    else:
+        print(f"[INFO] Using all {len(df_local)} steps from rollout (N={len(df_local)}).")
+
+    return df_local
+
+
+def extract_probe_data(
+    df_local: pd.DataFrame,
+    seconds_per_step: float,
+    include_moon: bool = False,
+):
+    """
+    Convert a rollout DataFrame in rotating CR3BP coordinates into
+    inertial positions and time-colored path data for Cesium.
+
+    If include_moon is True, Moon positions are generated as well.
+    """
+    required_pos_cols = {"pos_rot_abs_0", "pos_rot_abs_1", "pos_rot_abs_2"}
+    if not required_pos_cols.issubset(df_local.columns):
+        missing = required_pos_cols.difference(df_local.columns)
+        raise KeyError(
+            f"CSV must contain columns {sorted(required_pos_cols)}, "
+            f"missing: {sorted(missing)}"
+        )
+
+    x_rel = df_local["pos_rot_abs_0"].to_numpy()
+    y_rel = df_local["pos_rot_abs_1"].to_numpy()
+    z_rel = df_local["pos_rot_abs_2"].to_numpy()
+
+    if {"dv_0", "dv_1", "dv_2"}.issubset(df_local.columns):
+        dv_vecs = df_local[["dv_0", "dv_1", "dv_2"]].to_numpy()
+        dv_norms = np.linalg.norm(dv_vecs, axis=1)
+        max_thrust = np.max(dv_norms) if np.max(dv_norms) > 0 else 1.0
+        norm_dv = dv_norms / max_thrust
+        print(
+            f"[INFO] Delta-v statistics: "
+            f"min={dv_norms.min():.3e}, max={dv_norms.max():.3e}"
+        )
+    else:
+        norm_dv = np.zeros(len(df_local))
+        print("[INFO] No dv_0/dv_1/dv_2 columns found. Using constant path color.")
+
+    cmap = plt.get_cmap("coolwarm")
+    rgba_time_list = []
+    probe_pos_data = []
+    moon_pos_data = []
+
+    pos_earth_rot = np.array([-MU_EM, 0.0, 0.0])
+    pos_moon_rot = np.array([1.0 - MU_EM, 0.0, 0.0])
+
+    for i in range(len(df_local)):
+        t_rot = i * DT
+        c, s = np.cos(t_rot), np.sin(t_rot)
+
+        current_time = START_TIME + datetime.timedelta(
+            seconds=float(i * seconds_per_step)
+        )
+        iso_time = current_time.isoformat().replace("+00:00", "Z")
+
+        rgba = cmap(norm_dv[i])
+        alpha = int(150 + 105 * norm_dv[i])
+        rgba_time_list.extend(
+            [
+                iso_time,
+                int(rgba[0] * 255),
+                int(rgba[1] * 255),
+                int(rgba[2] * 255),
+                alpha,
+            ]
+        )
+
+        def rot(vec: np.ndarray) -> np.ndarray:
+            return np.array(
+                [
+                    vec[0] * c - vec[1] * s,
+                    vec[0] * s + vec[1] * c,
+                    vec[2],
+                ]
+            )
+
+        earth_in = rot(pos_earth_rot)
+        moon_in = rot(pos_moon_rot)
+        probe_in = rot(np.array([x_rel[i], y_rel[i], z_rel[i]]))
+
+        moon_final = (moon_in - earth_in) * SCALE_FACTOR
+        probe_final = (probe_in - earth_in) * SCALE_FACTOR
+
+        if include_moon:
+            moon_pos_data.extend([iso_time, *map(float, moon_final)])
+        probe_pos_data.extend([iso_time, *map(float, probe_final)])
+
+    end_time = START_TIME + datetime.timedelta(
+        seconds=float((len(df_local) - 1) * seconds_per_step)
+    )
+
+    return probe_pos_data, rgba_time_list, moon_pos_data, end_time
+
+
+# --------------------------------------------------------------------
+# 4. Build CZML content for primary and secondary runs
 # --------------------------------------------------------------------
 
 if not RUN_DIR.exists():
@@ -89,107 +208,35 @@ if not RUN_DIR.exists():
 
 print(f"[INFO] Using fixed robust run directory: {RUN_DIR}")
 
-csv_path = RUN_DIR / "rollouts" / "sim_2900_steps_5939200.csv"
-if not csv_path.exists():
-    raise FileNotFoundError(f"Rollout CSV not found: {csv_path}")
-
-print(f"[INFO] Loading rollout CSV: {csv_path}")
-
-df = pd.read_csv(csv_path)
-df.columns = df.columns.str.strip()
-
-if len(df) > MAX_STEPS:
-    df = df.iloc[:MAX_STEPS].reset_index(drop=True)
-    print(f"[INFO] Using first {MAX_STEPS} steps from rollout.")
-else:
-    print(f"[INFO] Using all {len(df)} steps from rollout (N={len(df)}).")
-
-# --------------------------------------------------------------------
-# 4. Extract position and Δv
-# --------------------------------------------------------------------
-
-required_pos_cols = {"pos_rot_abs_0", "pos_rot_abs_1", "pos_rot_abs_2"}
-if not required_pos_cols.issubset(df.columns):
-    missing = required_pos_cols.difference(df.columns)
-    raise KeyError(
-        f"CSV must contain columns {sorted(required_pos_cols)}, "
-        f"missing: {sorted(missing)}"
-    )
-
-x_rel = df["pos_rot_abs_0"].to_numpy()
-y_rel = df["pos_rot_abs_1"].to_numpy()
-z_rel = df["pos_rot_abs_2"].to_numpy()
-
-if {"dv_0", "dv_1", "dv_2"}.issubset(df.columns):
-    dv_vecs = df[["dv_0", "dv_1", "dv_2"]].to_numpy()
-    dv_norms = np.linalg.norm(dv_vecs, axis=1)
-    max_thrust = np.max(dv_norms) if np.max(dv_norms) > 0 else 1.0
-    norm_dv = dv_norms / max_thrust
-    print(
-        f"[INFO] Delta-v statistics: "
-        f"min={dv_norms.min():.3e}, max={dv_norms.max():.3e}"
-    )
-else:
-    norm_dv = np.zeros(len(df))
-    print("[INFO] No dv_0/dv_1/dv_2 columns found. Using constant path color.")
-
-# --------------------------------------------------------------------
-# 5. Rotating -> inertial transform and timestamps
-# --------------------------------------------------------------------
-
 seconds_per_step = DT * (SIDEREAL_MONTH_SEC / (2 * np.pi))
 
-cmap = plt.get_cmap("coolwarm")
-rgba_time_list = []
-moon_pos_data = []
-probe_pos_data = []
-
-pos_earth_rot = np.array([-MU_EM, 0.0, 0.0])
-pos_moon_rot = np.array([1.0 - MU_EM, 0.0, 0.0])
-
-for i in range(len(df)):
-    t_rot = i * DT
-    c, s = np.cos(t_rot), np.sin(t_rot)
-
-    current_time = START_TIME + datetime.timedelta(
-        seconds=float(i * seconds_per_step)
-    )
-    iso_time = current_time.isoformat().replace("+00:00", "Z")
-
-    rgba = cmap(norm_dv[i])
-    alpha = int(150 + 105 * norm_dv[i])
-    rgba_time_list.extend(
-        [
-            iso_time,
-            int(rgba[0] * 255),
-            int(rgba[1] * 255),
-            int(rgba[2] * 255),
-            alpha,
-        ]
-    )
-
-    def rot(vec: np.ndarray) -> np.ndarray:
-        return np.array(
-            [
-                vec[0] * c - vec[1] * s,
-                vec[0] * s + vec[1] * c,
-                vec[2],
-            ]
-        )
-
-    earth_in = rot(pos_earth_rot)
-    moon_in = rot(pos_moon_rot)
-    probe_in = rot(np.array([x_rel[i], y_rel[i], z_rel[i]]))
-
-    moon_final = (moon_in - earth_in) * SCALE_FACTOR
-    probe_final = (probe_in - earth_in) * SCALE_FACTOR
-
-    moon_pos_data.extend([iso_time, *map(float, moon_final)])
-    probe_pos_data.extend([iso_time, *map(float, probe_final)])
-
-end_time = START_TIME + datetime.timedelta(
-    seconds=float((len(df) - 1) * seconds_per_step)
+df_primary = load_and_crop_rollout(PRIMARY_ROLLOUT)
+probe_pos_primary, rgba_primary, moon_pos_data, end_time_primary = extract_probe_data(
+    df_primary,
+    seconds_per_step,
+    include_moon=True,
 )
+
+probe_pos_secondary = []
+rgba_secondary = []
+end_time_secondary = START_TIME
+
+if SECONDARY_ROLLOUT.exists():
+    df_secondary = load_and_crop_rollout(SECONDARY_ROLLOUT)
+    (
+        probe_pos_secondary,
+        rgba_secondary,
+        _,
+        end_time_secondary,
+    ) = extract_probe_data(
+        df_secondary,
+        seconds_per_step,
+        include_moon=False,
+    )
+else:
+    print(f"[WARN] Secondary rollout not found: {SECONDARY_ROLLOUT}")
+
+end_time = max(end_time_primary, end_time_secondary)
 
 interval_str = (
     f"{START_TIME.isoformat().replace('+00:00','Z')}/"
@@ -197,7 +244,7 @@ interval_str = (
 )
 
 # --------------------------------------------------------------------
-# 6. Build CZML
+# 5. Build CZML
 # --------------------------------------------------------------------
 
 czml = [
@@ -235,11 +282,11 @@ czml = [
     },
     {
         "id": "StationKeepingProbe",
-        "name": "Station-Keeping Probe",
+        "name": "Station-Keeping Probe (sim_2900)",
         "availability": interval_str,
         "position": {
             "epoch": START_TIME.isoformat().replace("+00:00", "Z"),
-            "cartesian": probe_pos_data,
+            "cartesian": probe_pos_primary,
         },
         "model": {
             "gltf": model_uri,
@@ -255,7 +302,7 @@ czml = [
                 "polylineOutline": {
                     "color": {
                         "epoch": START_TIME.isoformat().replace("+00:00", "Z"),
-                        "rgba": rgba_time_list,
+                        "rgba": rgba_primary,
                     },
                     "outlineColor": {"rgba": [255, 255, 255, 255]},
                     "outlineWidth": 1,
@@ -268,8 +315,45 @@ czml = [
     },
 ]
 
+if probe_pos_secondary:
+    czml.append(
+        {
+            "id": "StationKeepingProbe_Run0008",
+            "name": "Station-Keeping Probe (sim_0008)",
+            "availability": interval_str,
+            "position": {
+                "epoch": START_TIME.isoformat().replace("+00:00", "Z"),
+                "cartesian": probe_pos_secondary,
+            },
+            "model": {
+                "gltf": model_uri,
+                "scale": 2000.0,
+                "minimumPixelSize": 128,
+                "show": True,
+            },
+            "orientation": {
+                "velocityReference": "#StationKeepingProbe_Run0008"
+            },
+            "path": {
+                "material": {
+                    "polylineOutline": {
+                        "color": {
+                            "epoch": START_TIME.isoformat().replace("+00:00", "Z"),
+                            "rgba": rgba_secondary,
+                        },
+                        "outlineColor": {"rgba": [255, 255, 255, 255]},
+                        "outlineWidth": 1,
+                    }
+                },
+                "width": 4,
+                "leadTime": 0,
+                "trailTime": 10_000_000,
+            },
+        }
+    )
+
 # --------------------------------------------------------------------
-# 7. Write CZML
+# 6. Write CZML
 # --------------------------------------------------------------------
 
 with CZML_FILENAME.open("w", encoding="utf-8") as f:

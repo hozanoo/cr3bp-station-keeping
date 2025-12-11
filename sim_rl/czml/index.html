@@ -33,6 +33,27 @@
       z-index: 999;
       pointer-events: none;
     }
+    #runSelectorContainer {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 8px;
+      z-index: 1000;
+      font-size: 13px;
+    }
+    #runSelectorContainer label {
+      margin-right: 6px;
+    }
+    #runSelect {
+      background: #111;
+      color: #fff;
+      border-radius: 4px;
+      border: 1px solid #555;
+      padding: 2px 4px;
+    }
   </style>
 </head>
 
@@ -40,16 +61,21 @@
   <div id="cesiumContainer"></div>
   <div id="loading">Lade Station-Keeping-Mission...</div>
 
+  <div id="runSelectorContainer">
+    <label for="runSelect">Run:</label>
+    <select id="runSelect">
+      <option value="perfect">Robust run (sim_2900)</option>
+      <option value="early">Early run (sim_0008)</option>
+    </select>
+  </div>
+
   <script>
-    /* Disable Cesium Ion completely */
     Cesium.Ion.defaultAccessToken = "";
 
-    /* Explicit imagery provider (OpenStreetMap) to avoid Ion dependencies */
     const osmImagery = new Cesium.UrlTemplateImageryProvider({
       url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     });
 
-    /* Initialize viewer */
     const viewer = new Cesium.Viewer("cesiumContainer", {
       terrainProvider: new Cesium.EllipsoidTerrainProvider(),
       imageryProvider: osmImagery,
@@ -63,7 +89,6 @@
       shouldAnimate: true
     });
 
-    /* Keep globe and lighting enabled */
     viewer.scene.globe = new Cesium.Globe(Cesium.Ellipsoid.WGS84);
 
     viewer.scene.globe.imageryLayers.removeAll();
@@ -83,14 +108,48 @@
       .then(function (dataSource) {
         viewer.dataSources.add(dataSource);
 
-        /* In the CZML, the agent is named "StationKeepingProbe" */
-        const probe = dataSource.entities.getById("StationKeepingProbe");
+        const perfectProbe = dataSource.entities.getById("StationKeepingProbe");
+        const earlyProbe   = dataSource.entities.getById("StationKeepingProbe_Run0008");
 
-        if (probe) {
-          viewer.trackedEntity = probe;
-        } else {
-          console.warn("StationKeepingProbe not found. Zooming to all entities.");
-          viewer.zoomTo(dataSource);
+        const runSelect = document.getElementById("runSelect");
+
+        function applyRunSelection(value) {
+          const entities = dataSource.entities.values;
+
+          for (let i = 0; i < entities.length; i++) {
+            const entity = entities[i];
+
+            const isPerfect = entity.id === "StationKeepingProbe";
+            const isEarly   = entity.id === "StationKeepingProbe_Run0008";
+
+            if (!isPerfect && !isEarly) {
+              continue;
+            }
+
+            const shouldShow =
+              (value === "perfect" && isPerfect) ||
+              (value === "early"   && isEarly);
+
+            entity.show = shouldShow;
+            if (entity.model) {
+              entity.model.show = shouldShow;
+            }
+          }
+
+          if (value === "perfect" && perfectProbe) {
+            viewer.trackedEntity = perfectProbe;
+          } else if (value === "early" && earlyProbe) {
+            viewer.trackedEntity = earlyProbe;
+          }
+        }
+
+        // Initial state: robust run only
+        applyRunSelection("perfect");
+        if (runSelect) {
+          runSelect.value = "perfect";
+          runSelect.addEventListener("change", function () {
+            applyRunSelection(runSelect.value);
+          });
         }
 
         document.getElementById("loading").style.display = "none";
