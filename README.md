@@ -1,5 +1,7 @@
 # Autonomous Station-Keeping in the CR3BP Using Physics-Based Dynamics, Reinforcement Learning, and Physics-Informed Neural Networks (Earth–Moon L1)
+
 ![Overview](cesium_station_keeping.png)
+
 ## Simulation & Reinforcement Learning (Robust Demo)
 
 This project implements a simulation and reinforcement-learning framework for spacecraft **station-keeping** in the **Circular Restricted Three-Body Problem (CR3BP)**, with a focus on the **Earth–Moon L1** region.
@@ -18,14 +20,11 @@ The earlier project focuses on:
 
 ### References to the original work
 
-- **Python implementation (simulation core)**  
-  https://drive.google.com/file/d/1Zi63k1PvAzIcmbct0qGah_rrn2H0V0Z9/view
+- **Python implementation (simulation core)** https://drive.google.com/file/d/1Zi63k1PvAzIcmbct0qGah_rrn2H0V0Z9/view
 
-- **Analysis notebook (Colab)**  
-  https://colab.research.google.com/drive/1wJoJphKMbrssbXftERkunHfOmCUldQmI
+- **Analysis notebook (Colab)** https://colab.research.google.com/drive/1wJoJphKMbrssbXftERkunHfOmCUldQmI
 
-- **Theoretical documentation (PDF)**  
-  https://drive.google.com/file/d/1zC02uh_ogOFGItnihVp9mOp915VS62ts/view
+- **Theoretical documentation (PDF)** https://drive.google.com/file/d/1zC02uh_ogOFGItnihVp9mOp915VS62ts/view
 
 The current project extends this foundation by:
 - Embedding the CR3BP dynamics into **Gymnasium-compatible RL environments**
@@ -33,15 +32,13 @@ The current project extends this foundation by:
 - Adding **deterministic and robust RL training setups**
 - Preparing the system for **physics-informed learning (HNN)** in later stages
 
-> **Note on theoretical documentation**  
-> The classical CR3BP theory used in this project (problem formulation, normalized units, rotating reference frame, numerical integration, and basic stability considerations) is already covered in the referenced prior documentation.  
+> **Note on theoretical documentation** > The classical CR3BP theory used in this project (problem formulation, normalized units, rotating reference frame, numerical integration, and basic stability considerations) is already covered in the referenced prior documentation.  
 >  
 > Ongoing and future theoretical work focuses on **Hamiltonian formulations**, **Hamiltonian Neural Networks (HNNs)**, and the **theoretical foundations of learning dynamics and control via RL**, which will be developed and maintained as a separate **Sphinx documentation**.
 
 ---
 
-> **Note on execution environment**  
-> The data pipeline (Airflow, Postgres, infrastructure services) is executed via **Docker**.  
+> **Note on execution environment** > The data pipeline (Airflow, Postgres, infrastructure services) is executed via **Docker**.  
 > Reinforcement Learning (RL) and Hamiltonian Neural Network (HNN) training are run **locally** and **not inside Docker**.  
 >  
 > Before running RL or HNN training scripts, install the required Python dependencies:
@@ -59,35 +56,34 @@ This is **Part 1** of the project documentation and covers:
 - Reinforcement Learning environments
 - Robust RL demo configuration
 
-
 ---
 
 ## Key components (Simulation & RL)
 
 ### Environments
-- `sim_rl/cr3bp/env_cr3bp_station_keeping.py`
+* `sim_rl/cr3bp/env_cr3bp_station_keeping.py`  
   Early baseline: L1 point tracking.
 
-- `sim_rl/cr3bp/env_cr3bp_station_keeping_repo.py`
+* `sim_rl/cr3bp/env_cr3bp_station_keeping_repo.py`  
   Deterministic variant with fixed scaling and reproducible behavior.
 
-- `sim_rl/cr3bp/env_cr3bp_station_keeping_robust.py`  
+* `sim_rl/cr3bp/env_cr3bp_station_keeping_robust.py`  
   **Robust demo environment** with built-in physical uncertainties, including  
   domain randomization (μ perturbation), actuator noise, and external disturbance forces.
 
 ### Training scripts
-- `sim_rl/training/train_poc.py`
+* `sim_rl/training/train_poc.py`  
   Initial proof-of-concept training script.
 
-- `sim_rl/training/train_poc_repo.py`
+* `sim_rl/training/train_poc_repo.py`  
   Deterministic training setup (fixed seeds, scaling).
 
-- `sim_rl/training/train_poc_robust.py`  
+* `sim_rl/training/train_poc_robust.py`  
   **Main demo training script** for robust RL, using the stochastic CR3BP environment
   with strict reproducibility (fixed seeds, CPU-only execution).
 
 ### Core physics
-- `sim_rl/cr3bp/N_Body/nbody_lib.py`
+* `sim_rl/cr3bp/N_Body/nbody_lib.py`  
   Physics and numerical integration backend (from prior N-body work).
 
 ---
@@ -99,17 +95,14 @@ The robust environment preserves the same **reward structure** as the determinis
 realistic uncertainties.
 
 ### Robustness mechanisms
-1. **Domain randomization**
-   The CR3BP mass parameter μ is perturbed at the start of each episode.
+1. **Domain randomization** The CR3BP mass parameter μ is perturbed at the start of each episode.
 
-2. **Actuator noise**
-   Control actions are affected by magnitude and direction noise.
+2. **Actuator noise** Control actions are affected by magnitude and direction noise.
 
-3. **External disturbances**
-   A constant disturbance acceleration (e.g. SRP-like bias) is applied per episode.
+3. **External disturbances** A constant disturbance acceleration (e.g. SRP-like bias) is applied per episode.
 
 ### Observation and action
-- **Observation**: scaled relative state
+- **Observation**: scaled relative state  
   [Δposition, Δvelocity] with deterministic scaling.
 - **Action**: continuous thrust command in [-1, 1], mapped to a small Δv.
 
@@ -165,12 +158,7 @@ can be added by extending the `SCENARIOS` dictionary.
 System parameters, normalization constants, reward weights and limits are defined in:
 `sim_rl/cr3bp/constants.py`
 
-
-
-
-
-
-
+---
 
 ## Data Pipeline (ELT for HNN Training)
 
@@ -299,16 +287,7 @@ After a successful pipeline run:
 
 This ensures a clean separation between **data generation**, **storage**, and **machine-learning models**.
 
-
-
-
-
-
-
-
-
-
-
+---
 
 ## Hamiltonian Neural Network (HNN)
 
@@ -324,14 +303,14 @@ Hamiltonian and recovers time evolution via Hamilton’s equations.
 ### Conceptual Overview
 
 The HNN learns a **scalar Hamiltonian**
-\[
+$$
 H(q, p)
-\]
+$$
 from which time derivatives are obtained via **Hamilton’s equations**:
-\[
+$$
 \dot{q} = \frac{\partial H}{\partial p}, \qquad
 \dot{p} = -\frac{\partial H}{\partial q}.
-\]
+$$
 
 Key design principles:
 - The network **does not learn accelerations directly**.
@@ -346,25 +325,25 @@ where preserving physical structure is more important than short-horizon accurac
 
 ### State Representation and Canonical Momenta
 
-The HNN operates in **canonical coordinates** \((q, p)\), not raw position–velocity space.
+The HNN operates in **canonical coordinates** $(q, p)$, not raw position–velocity space.
 
 For the **rotating CR3BP frame (normalized units)**, the canonical momenta are defined as:
-\[
+$$
 \begin{aligned}
 p_x &= v_x - y, \\
 p_y &= v_y + x, \\
-p_z &= v_z \quad (\text{for 3D}),
+p_z &= v_z,
 \end{aligned}
-\]
+$$
 
 with corresponding time derivatives:
-\[
+$$
 \begin{aligned}
 \dot{p}_x &= a_x - v_y, \\
 \dot{p}_y &= a_y + v_x, \\
 \dot{p}_z &= a_z.
 \end{aligned}
-\]
+$$
 
 This transformation embeds Coriolis effects directly into the momentum variables and allows
 the Hamiltonian to represent the CR3BP dynamics in a physically meaningful form.
@@ -375,8 +354,8 @@ the Hamiltonian to represent the CR3BP dynamics in a physically meaningful form.
 
 **File:** `hnn_models/model/hnn.py`
 
-- Input: concatenated state \([q, p] \in \mathbb{R}^{2d}\)
-- Output: scalar Hamiltonian \(H(q,p)\)
+- Input: concatenated state $[q, p] \in \mathbb{R}^{2d}$
+- Output: scalar Hamiltonian $H(q,p)$
 - Architecture: fully connected MLP
 - Activation: **sine (SIREN-style)** by default
 - Hidden layers: configurable (default: 3 × 256)
@@ -385,8 +364,8 @@ The model stores **feature-wise normalization statistics** (`state_mean`, `state
 as registered buffers, ensuring consistent scaling during training and inference.
 
 Time derivatives are computed via:
-- forward pass to obtain \(H\)
-- automatic differentiation with respect to \(q\) and \(p\)
+- forward pass to obtain $H$
+- automatic differentiation with respect to $q$ and $p$
 
 ---
 
@@ -395,21 +374,21 @@ Time derivatives are computed via:
 **File:** `hnn_models/dataloader/hnn_dataset.py`
 
 Training data is read directly from the PostgreSQL view:
-
+```text
 cr3bp.hnn_training_view
-
+```
 
 Each dataset sample corresponds to **one simulation time step** and provides:
-- position \(q\)
-- canonical momentum \(p\)
-- ground-truth \(\dot{q}\)
-- ground-truth \(\dot{p}\)
+- position $q$
+- canonical momentum $p$
+- ground-truth $\dot{q}$
+- ground-truth $\dot{p}$
 
 Key characteristics:
 - Data originates from **physics-only CR3BP simulations**
 - No control inputs are present
 - Accelerations are taken directly from the simulator output
-- Dataset-level normalization is computed over the concatenated state \([q,p]\)
+- Dataset-level normalization is computed over the concatenated state $[q,p]$
 
 Optional SQL filtering (`WHERE` clause) and hard sample limits allow controlled experiments
 (e.g. subset selection, phase-specific training).
@@ -421,10 +400,9 @@ Optional SQL filtering (`WHERE` clause) and hard sample limits allow controlled 
 **File:** `hnn_models/training/train_hnn.py`
 
 The training objective minimizes a **combined MSE loss** on predicted time derivatives:
-\[
-\mathcal{L} = \text{MSE}(\dot{q}_{\text{pred}}, \dot{q}_{\text{true}})
-           + \text{MSE}(\dot{p}_{\text{pred}}, \dot{p}_{\text{true}})
-\]
+$$
+\mathcal{L} = \text{MSE}(\dot{q}_{\text{pred}}, \dot{q}_{\text{true}}) + \text{MSE}(\dot{p}_{\text{pred}}, \dot{p}_{\text{true}})
+$$
 
 To stabilize optimization across different regions of state space:
 - Each term is **scaled by its batch RMS magnitude**
@@ -453,8 +431,7 @@ Key features:
 - Explicit separation between derivative computation and integration
 - Designed for stability during long-horizon simulations
 
-> **Integrator note**  
-> The current implementation uses a Leapfrog-style scheme, which belongs to the
+> **Integrator note** > The current implementation uses a Leapfrog-style scheme, which belongs to the
 > symplectic integrator family and is well-suited for Hamiltonian systems.
 >  
 > Support for additional symplectic methods (e.g. Leapfrog for separable Hamiltonians
@@ -469,10 +446,7 @@ Quantitative evaluation and qualitative analysis of HNN behavior
 (e.g. rollout stability, trajectory comparison, error growth)
 are currently performed in:
 
-notebooks/hnn_analysis.ipynb
-
-
-
+`notebooks/hnn_analysis.ipynb`
 
 ### Multi-Stage HNN Training Strategy
 
@@ -576,10 +550,7 @@ When embedded into reinforcement learning experiments, the learned HNN-based dyn
 
 Importantly, this reduced training horizon reflects a **practical RL stability and efficiency choice**, rather than a hard limitation of the HNN itself. After training, the HNN-based controller can be executed in **longer closed-loop simulations** without numerical instability. Station-keeping performance and halo-tracking error remain bounded over extended time spans, as confirmed by post-training rollout evaluations.
 
-
-
-
-
+---
 
 ## Hybrid RL with HNN Dynamics (Robust Demo)
 
@@ -687,10 +658,7 @@ the HNN training data selection and objectives, improving rollout integration (i
 structure-preserving / symplectic methods), and tuning the hybrid RL setup—to achieve better
 long-horizon stability and reduced Δv consumption.
 
-
-
-
-
+---
 
 ## Analysis & Visualization
 
@@ -713,9 +681,7 @@ learned dynamics, and detailed post-training diagnostics.
 
 All analysis notebooks are located in:
 
-notebooks/
-
-
+`notebooks/`
 
 They operate exclusively on:
 - CSV rollouts exported during training
@@ -740,8 +706,8 @@ Key analyses include:
 - Inspection of normalization consistency across multi-stage HNN training runs
 
 Typical diagnostics:
-- Hamiltonian value \( H(q,p) \) along time
-- Jacobi constant drift \( C(t) - C(0) \)
+- Hamiltonian value $H(q,p)$ along time
+- Jacobi constant drift $C(t) - C(0)$
 - Short-horizon rollout stability and error growth
 
 These analyses confirm that the HNN captures the local CR3BP dynamics
@@ -802,9 +768,7 @@ HNN-accelerated dynamics.
 
 Generated media is written to:
 
-
-visualizations/
-
+`visualizations/`
 
 The directory is tracked in Git via a `.gitkeep` file but remains empty by
 default to avoid committing large binary assets. Media files are generated
@@ -823,11 +787,9 @@ All results are reproducible from stored rollouts and checkpoints,
 ensuring a clean separation between **training**, **analysis**, and
 **presentation** stages.
 
-
-
+---
 
 ## Visualization (CesiumJS – 3D Mission Playback)
-
 
 This project includes a **CesiumJS-based 3D visualization** for presenting
 station-keeping results in an interactive and physically interpretable way.
@@ -923,10 +885,12 @@ To enable the Gateway visualization locally:
 2. Place the downloaded file as:
    ```text
    sim_rl/czml/Gateway_Core.glb
+   ```
 
 If the file is not present, the export script automatically falls back
 to a Cesium-provided sample spacecraft model, so the visualization
 remains fully functional without additional setup.
+
 ---
 
 ### Cesium Viewer (Static Frontend)
@@ -964,11 +928,11 @@ The Cesium service exposes:
 ```text
 http://localhost:8000/
 ```
+
 To test only the Cesium viewer (without running the full pipeline), navigate to
 the deploy directory and run:
 
+```bash
 docker compose build cesium
 docker compose up -d cesium
-
-
-
+```
