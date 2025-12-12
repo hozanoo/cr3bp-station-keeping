@@ -6,7 +6,7 @@
 
 This project implements a simulation and reinforcement-learning framework for spacecraft **station-keeping** in the **Circular Restricted Three-Body Problem (CR3BP)**, with a focus on the **Earth–Moon L1** region.
 
-The RL agent learns to maintain a spacecraft trajectory near L1 by **tracking a reference Halo-like orbit** (or optionally L1 directly) while minimizing control effort (Δv).
+The RL agent learns to maintain a spacecraft trajectory near L1 by **tracking a reference Halo-like orbit** (or optionally L1 directly) while minimizing control effort ($\Delta v$).
 
 ## Prior work & theoretical background
 
@@ -69,7 +69,7 @@ This is **Part 1** of the project documentation and covers:
 
 * `sim_rl/cr3bp/env_cr3bp_station_keeping_robust.py`  
   **Robust demo environment** with built-in physical uncertainties, including  
-  domain randomization (μ perturbation), actuator noise, and external disturbance forces.
+  domain randomization ($\mu$ perturbation), actuator noise, and external disturbance forces.
 
 ### Training scripts
 * `sim_rl/training/train_poc.py`  
@@ -95,7 +95,7 @@ The robust environment preserves the same **reward structure** as the determinis
 realistic uncertainties.
 
 ### Robustness mechanisms
-1. **Domain randomization** The CR3BP mass parameter μ is perturbed at the start of each episode.
+1. **Domain randomization** The CR3BP mass parameter $\mu$ is perturbed at the start of each episode.
 
 2. **Actuator noise** Control actions are affected by magnitude and direction noise.
 
@@ -103,13 +103,13 @@ realistic uncertainties.
 
 ### Observation and action
 - **Observation**: scaled relative state  
-  [Δposition, Δvelocity] with deterministic scaling.
-- **Action**: continuous thrust command in [-1, 1], mapped to a small Δv.
+  [$\Delta$position, $\Delta$velocity] with deterministic scaling.
+- **Action**: continuous thrust command in $[-1, 1]$, mapped to a small $\Delta v$.
 
 ### Reward structure
 - **Position error**: quadratic penalty (stability).
 - **Relative velocity**: linear penalty (damping).
-- **Control effort (Δv)**: linear penalty (fuel efficiency / sparsity).
+- **Control effort ($\Delta v$)**: linear penalty (fuel efficiency / sparsity).
 - **Crash near primaries**: episode termination with a hard penalty.
 
 ---
@@ -277,18 +277,6 @@ The view joins **simulation metadata**, **system/Lagrange point identifiers**, a
 
 ---
 
-### Output & Usage
-
-After a successful pipeline run:
-
-1.  Raw CSVs remain available under `data_pipeline/raw_exports/`.
-2.  All trajectories are accessible via PostgreSQL.
-3.  **HNN training** reads exclusively from `cr3bp.hnn_training_view`.
-
-This ensures a clean separation between **data generation**, **storage**, and **machine-learning models**.
-
----
-
 ## Hamiltonian Neural Network (HNN)
 
 This chapter describes the **Hamiltonian Neural Network (HNN)** component of the project.
@@ -302,14 +290,10 @@ Hamiltonian and recovers time evolution via Hamilton’s equations.
 
 ### Conceptual Overview
 
-The HNN learns a **scalar Hamiltonian**
+The HNN learns a **scalar Hamiltonian** $H(q, p)$ from which time derivatives are obtained via **Hamilton’s equations**:
+
 $$
-H(q, p)
-$$
-from which time derivatives are obtained via **Hamilton’s equations**:
-$$
-\dot{q} = \frac{\partial H}{\partial p}, \qquad
-\dot{p} = -\frac{\partial H}{\partial q}.
+\dot{q} = \frac{\partial H}{\partial p}, \qquad \dot{p} = -\frac{\partial H}{\partial q}
 $$
 
 Key design principles:
@@ -328,15 +312,17 @@ where preserving physical structure is more important than short-horizon accurac
 The HNN operates in **canonical coordinates** $(q, p)$, not raw position–velocity space.
 
 For the **rotating CR3BP frame (normalized units)**, the canonical momenta are defined as:
+
 $$
 \begin{aligned}
 p_x &= v_x - y, \\
 p_y &= v_y + x, \\
-p_z &= v_z,
+p_z &= v_z \quad (\text{for 3D}),
 \end{aligned}
 $$
 
 with corresponding time derivatives:
+
 $$
 \begin{aligned}
 \dot{p}_x &= a_x - v_y, \\
@@ -400,6 +386,7 @@ Optional SQL filtering (`WHERE` clause) and hard sample limits allow controlled 
 **File:** `hnn_models/training/train_hnn.py`
 
 The training objective minimizes a **combined MSE loss** on predicted time derivatives:
+
 $$
 \mathcal{L} = \text{MSE}(\dot{q}_{\text{pred}}, \dot{q}_{\text{true}}) + \text{MSE}(\dot{p}_{\text{pred}}, \dot{p}_{\text{true}})
 $$
@@ -546,7 +533,7 @@ The final model (`hnn_cr3bp_l1_halo_finetune_v3.pt`) represents a **globally con
 
 In standalone HNN rollouts, stable trajectory propagation was observed for approximately the first **700 integration steps** at a step size of **dt = 0.01**. Beyond this horizon, accumulated modeling and numerical integration errors become noticeable, which is expected for learned Hamiltonian dynamics.
 
-When embedded into reinforcement learning experiments, the learned HNN-based dynamics remained fully operational but required a reduced episode length (`max_steps` reduced from **1200 to ~700**) and resulted in a **higher control effort (Δv consumption)** compared to the pure physics-based environment.
+When embedded into reinforcement learning experiments, the learned HNN-based dynamics remained fully operational but required a reduced episode length (`max_steps` reduced from **1200 to ~700**) and resulted in a **higher control effort ($\Delta v$ consumption)** compared to the pure physics-based environment.
 
 Importantly, this reduced training horizon reflects a **practical RL stability and efficiency choice**, rather than a hard limitation of the HNN itself. After training, the HNN-based controller can be executed in **longer closed-loop simulations** without numerical instability. Station-keeping performance and halo-tracking error remain bounded over extended time spans, as confirmed by post-training rollout evaluations.
 
@@ -587,7 +574,7 @@ actuator noise, disturbance acceleration) used in the robust physics-based demo.
 * `sim_rl/cr3bp_hnn/env_cr3bp_station_keeping_hnn_robust.py`  
   **Robust HNN environment**:
   * HNN replaces the physics integrator for dynamics propagation
-  * Robustness features are applied (μ randomization, actuator noise, constant disturbance)
+  * Robustness features are applied ($\mu$ randomization, actuator noise, constant disturbance)
   * Reference-orbit tracking is supported (Halo tracking)
 
 * `sim_rl/training/train_poc_hnn_robust.py`  
@@ -642,12 +629,12 @@ A reference demo run (weights + logs) is available at:
 sim_rl/training/runs_hnn_robust/earth-moon-L1-3D/run_20251209_174149
 ```
 
-### Practical note on horizon and Δv
+### Practical note on horizon and $\Delta v$
 
 Because the environment uses learned Hamiltonian dynamics, small modeling and integration
 errors accumulate over time. In practice, RL training was more stable with a reduced episode
 length (max_steps reduced from ~1200 to ~700; see `MAX_STEPS_HNN`), and the resulting policy
-showed higher Δv consumption compared to the pure physics-based environment.
+showed higher $\Delta v$ consumption compared to the pure physics-based environment.
 
 This reflects a practical trade-off when closing the loop around learned dynamics: the hybrid
 setup remains operational and useful for the targeted demo experiments, while emphasizing where
@@ -656,7 +643,7 @@ learned-model limitations matter most (long horizons and fuel efficiency).
 For future work, this hybrid pipeline is intended to be extended and improved—e.g., by refining
 the HNN training data selection and objectives, improving rollout integration (including
 structure-preserving / symplectic methods), and tuning the hybrid RL setup—to achieve better
-long-horizon stability and reduced Δv consumption.
+long-horizon stability and reduced $\Delta v$ consumption.
 
 ---
 
@@ -729,7 +716,7 @@ structures.
 
 Analyzed metrics include:
 - Deviation from the reference halo orbit
-- Control effort (Δv consumption)
+- Control effort ($\Delta v$ consumption)
 - Episode length and stability
 - Robustness under disturbances and domain randomization
 
@@ -810,7 +797,7 @@ The Cesium visualization provides:
   * Robust RL (late / converged policy)
   * Early-training RL behavior
   * Uncontrolled free drift
-* Visual interpretation of **fuel usage (Δv)** along the trajectory
+* Visual interpretation of **fuel usage ($\Delta v$)** along the trajectory
 * Clean separation between **simulation**, **analysis**, and **presentation**
 
 No dynamics, control logic, or learning occurs inside Cesium.
@@ -853,7 +840,7 @@ The script:
 * Converts trajectories from the rotating CR3BP frame to an **inertial frame**
 * Uses an **Earth-centered representation** (Earth as origin)
 * Encodes time-stamped positions into CZML
-* Applies path color coding based on **normalized Δv magnitude**
+* Applies path color coding based on **normalized $\Delta v$ magnitude**
   * Free-drift trajectories appear with constant coloring (no control effort).
 
 #### Coordinate and Time Conventions
@@ -908,7 +895,7 @@ The viewer:
   * Early run
   * Free drift
 * Tracks the selected spacecraft automatically
-* Animates trajectory paths with Δv-based color coding
+* Animates trajectory paths with $\Delta v$-based color coding
 
 The viewer is intentionally minimal and presentation-focused.
 
