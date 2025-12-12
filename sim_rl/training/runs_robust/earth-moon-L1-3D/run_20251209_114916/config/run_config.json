@@ -1,0 +1,30 @@
+{
+  "global_seed": 42,
+  "scenario": {
+    "name": "earth-moon-L1-3D",
+    "system": "earth-moon",
+    "lagrange_point": "L1",
+    "action_mode": "full_3d",
+    "dim": 3,
+    "pos_noise": 0.0,
+    "vel_noise": 0.0
+  },
+  "scaling_constants": {
+    "SCALE_POS": 20.0,
+    "SCALE_VEL": 20.0
+  },
+  "robust_rewards": {
+    "W_POS_ROBUST": 20.0,
+    "W_VEL_ROBUST": 0.05,
+    "W_CTRL_ROBUST": 0.08,
+    "W_PLANAR_ROBUST": 0.0
+  },
+  "ppo_hyperparams": {
+    "learning_rate": 0.0003,
+    "n_steps": 512,
+    "batch_size": 64,
+    "gamma": 0.995,
+    "seed": 42,
+    "device": "cpu"
+  }
+}

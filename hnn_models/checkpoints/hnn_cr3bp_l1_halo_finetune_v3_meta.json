@@ -1,0 +1,30 @@
+{
+  "dim": 3,
+  "hidden_dims": [
+    256,
+    256,
+    256
+  ],
+  "state_mean": [
+    0.3384697139263153,
+    0.024735821411013603,
+    -0.023335475474596024,
+    -0.1052280142903328,
+    0.34921684861183167,
+    -0.009893523529171944
+  ],
+  "state_std": [
+    0.5370449423789978,
+    0.33391883969306946,
+    0.04975584149360657,
+    0.7611446976661682,
+    0.8595895767211914,
+    0.11138948798179626
+  ],
+  "best_val_loss": 0.0020370946262119106,
+  "run_name": "hnn_cr3bp_l1_halo_finetune_v3",
+  "limit": 400000,
+  "where_clause": "initial_condition_type = 'halo_ref_v1_max' AND termination_reason = 'steps' AND sqrt(power(x - 0.8368929, 2) + power(y, 2) + power(z, 2)) < 0.25",
+  "parent_checkpoint": "hnn_models/checkpoints/hnn_cr3bp_l1_local_v3.pt",
+  "forced_norm_source": "hnn_models/checkpoints/hnn_cr3bp_l1_mixed_v3_meta.json"
+}
