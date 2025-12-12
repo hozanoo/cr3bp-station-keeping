@@ -28,8 +28,8 @@ def main() -> None:
 
     # Load metadata + model weights
     ckpt_dir = Path("hnn_models/checkpoints")
-    ckpt_path = ckpt_dir / "hnn_cr3bp_l1.pt"
-    meta_path = ckpt_dir / "hnn_cr3bp_l1_meta.json"
+    ckpt_path = ckpt_dir / "hnn_cr3bp_l1_halo_finetune_v3.pt"
+    meta_path = ckpt_dir / "hnn_cr3bp_l1_halo_finetune_v3_meta"
 
     with meta_path.open("r", encoding="utf8") as f:
         meta = json.load(f)

@@ -42,7 +42,7 @@ HERE = Path(__file__).resolve().parent
 BASE_RUN_DIR = HERE.parents[1] / "training" / "runs_robust"
 
 RUN_DIR = Path(
-    r"C:\Users\hosan\Desktop\cr3bp_project_3d\sim_rl\training\runs_robust\earth-moon-L1-3D\run_20251209_114916"
+    "sim_rl/training/runs_robust/earth-moon-L1-3D/run_20251209_114916"
 )
 
 # Main (late, "perfect") rollout and secondary (early) rollout

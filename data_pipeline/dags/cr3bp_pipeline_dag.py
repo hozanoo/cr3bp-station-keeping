@@ -70,10 +70,10 @@ default_args = {
 }
 
 with DAG(
-    dag_id="cr3bp_daily_pipeline",
+    dag_id="cr3bp_hourly_pipeline",
     description="Generate CR3BP trajectories and load them into PostgreSQL.",
     default_args=default_args,
-    schedule_interval="@daily",
+    schedule_interval="@hourly",
     catchup=False,
     max_active_runs=1,
     tags=["cr3bp", "hnn", "station-keeping"],
