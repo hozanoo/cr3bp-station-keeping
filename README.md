@@ -103,7 +103,7 @@ realistic uncertainties.
 
 ### Observation and action
 - **Observation**: scaled relative state  
-  [$\Delta$ position, $\Delta$ velocity] with deterministic scaling.
+  [ $\Delta$ position, $\Delta$ velocity] with deterministic scaling.
 - **Action**: continuous thrust command in $[-1, 1]$, mapped to a small $\Delta v$.
 
 ### Reward structure
