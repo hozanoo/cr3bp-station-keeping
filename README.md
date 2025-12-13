@@ -10,7 +10,7 @@ The RL agent learns to maintain a spacecraft trajectory near L1 by **tracking a 
 
 ## Prior work & theoretical background
 
-The CR3BP simulation core used in this project builds on **prior work** by the author.
+The CR3BP simulation core used in this project builds on my **prior work**.
 
 The earlier project focuses on:
 - The classical **N-body problem**
@@ -103,7 +103,7 @@ realistic uncertainties.
 
 ### Observation and action
 - **Observation**: scaled relative state  
-  [$\Delta$position, $\Delta$velocity] with deterministic scaling.
+  [$\Delta$ position, $\Delta$ velocity] with deterministic scaling.
 - **Action**: continuous thrust command in $[-1, 1]$, mapped to a small $\Delta v$.
 
 ### Reward structure
