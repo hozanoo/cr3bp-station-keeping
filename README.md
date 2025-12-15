@@ -758,6 +758,21 @@ This notebook uses **NASA NAIF SPICE kernels** to analyze real **ARTEMIS P1/P2 t
 and to compare inertial and rotating Earth–Moon reference frames for qualitative validation
 of CR3BP-based dynamics near L1.
 
+The required SPICE kernel files are **not included in the GitHub repository** to avoid
+large binary assets and repository bloat.
+
+To run the notebook locally:
+
+1. Download the required SPICE kernels from NASA NAIF:
+   - Leap seconds kernel (`naif0012.tls`)
+   - Planetary ephemeris (`de440.bsp`)
+   - ARTEMIS P1 SPK
+   - ARTEMIS P2 SPK
+
+2. Place all downloaded files into:
+   ```text
+   spice_kernels/
+
 ---
 
 ### Offline Media Export (GIF / MP4)
