@@ -83,5 +83,7 @@ dist/
 *.egg
 
 
+spice_kernels/*
+!spice_kernels/.gitkeep
 
 

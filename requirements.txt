@@ -15,3 +15,7 @@ tqdm
 # Database access (used in data_pipeline)
 SQLAlchemy
 psycopg2-binary
+
+
+
+spiceypy

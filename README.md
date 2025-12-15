@@ -20,11 +20,14 @@ The earlier project focuses on:
 
 ### References to the original work
 
-- **Python implementation (simulation core)** https://drive.google.com/file/d/1Zi63k1PvAzIcmbct0qGah_rrn2H0V0Z9/view
+- **Python implementation (simulation core)**  
+  [Google Drive – simulation core](https://drive.google.com/file/d/1Zi63k1PvAzIcmbct0qGah_rrn2H0V0Z9/view)
 
-- **Analysis notebook (Colab)** https://colab.research.google.com/drive/1wJoJphKMbrssbXftERkunHfOmCUldQmI
+- **Analysis notebook (Colab)**  
+  [Google Colab – analysis notebook](https://colab.research.google.com/drive/1wJoJphKMbrssbXftERkunHfOmCUldQmI)
 
-- **Theoretical documentation (PDF)** https://drive.google.com/file/d/1zC02uh_ogOFGItnihVp9mOp915VS62ts/view
+- **Theoretical documentation (PDF)**  
+  [Google Drive – theoretical PDF](https://drive.google.com/file/d/1zC02uh_ogOFGItnihVp9mOp915VS62ts/view)
 
 The current project extends this foundation by:
 - Embedding the CR3BP dynamics into **Gymnasium-compatible RL environments**
@@ -671,9 +674,11 @@ All analysis notebooks are located in:
 `notebooks/`
 
 They operate exclusively on:
+- Pretrained reinforcement learning agents (e.g. PPO `best_model.zip`) used for offline evaluation and rollout generation
 - CSV rollouts exported during training
 - Data loaded from the PostgreSQL database
 - Saved HNN checkpoints and metadata
+- NASA NAIF SPICE kernels (reference ephemeris data)
 
 No additional training is performed inside the notebooks.
 
@@ -743,6 +748,15 @@ The notebook illustrates:
 
 This provides an intuitive view of how the policy improves over time,
 complementing scalar reward metrics.
+
+---
+### SPICE / ARTEMIS Reference Analysis
+
+**Notebook:** `artemis_libration_point_dynamics.ipynb`
+
+This notebook uses **NASA NAIF SPICE kernels** to analyze real **ARTEMIS P1/P2 trajectories**
+and to compare inertial and rotating Earth–Moon reference frames for qualitative validation
+of CR3BP-based dynamics near L1.
 
 ---
 
