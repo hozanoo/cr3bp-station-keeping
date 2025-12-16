@@ -952,3 +952,11 @@ the deploy directory and run:
 docker compose build cesium
 docker compose up -d cesium
 ```
+
+
+
+### Note on AI-assisted tooling
+
+Parts of the documentation, comments, and docstrings were refined with the assistance of AI-based language tools to improve clarity and readability in English.
+
+All concepts, system design decisions, integrations, experiments, and evaluations were designed, validated, and understood by the author.
